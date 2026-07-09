@@ -1,0 +1,183 @@
+# Raspberry Pi palle-video
+
+MVP til en Raspberry Pi 5 med kamera ved en folieringsmaskine:
+
+1. Lageret viser en stregkode til kameraet.
+2. Pi'en læser ordrenummeret og giver et lydsignal.
+3. Pi'en optager video, mens pallen drejer.
+4. Optagelsen stopper, når pallen har stået stille i et konfigureret antal sekunder.
+5. Videoen gemmes lokalt i en kø og uploades til FTP/FTPS med ordrenummer, dato og tid i filnavnet.
+6. Valgfri privacy-processering kan sløre detekterede ansigter og faste billedområder inden upload.
+
+## Vigtige designvalg
+
+- **Lokal spool-kø først:** Netværk på lageret vil fejle fra tid til anden. Derfor er optagelsen færdig og gemt lokalt, før upload forsøges. Upload genprøves automatisk.
+- **WiFi/mobil behandles som netværk:** Selve appen er ligeglad med om forbindelsen er WiFi, Ethernet eller 4G/5G modem. Raspberry Pi OS bør sættes op med NetworkManager til automatisk failover.
+- **FTPS anbefales:** Almindelig FTP sender login og data ukrypteret. Brug `protocol = "ftps"` hvis serveren understøtter det.
+- **GDPR:** Den mest driftssikre løsning er at placere kameraet, så personer ikke kommer i billedet. Software-sløring er et ekstra sikkerhedslag, ikke en garanti.
+
+## Hardwareforslag
+
+- Raspberry Pi 5 med aktiv køling.
+- Raspberry Pi Camera Module 3 eller HQ-kamera, afhængigt af afstand og lys.
+- Fast montering på siden af folieringsmaskinen.
+- Ekstra LED-lys hvis lagerlyset varierer.
+- Lille buzzer på GPIO eller USB-/jack-højttaler.
+- Industrielt microSD eller SSD via USB til lokal kø.
+- Valgfrit 4G/5G USB-modem eller router, hvis WiFi er ustabilt.
+
+## Installation på Raspberry Pi OS
+
+```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip ffmpeg python3-picamera2 python3-opencv python3-zxing-cpp python3-paramiko
+python3 -m venv --system-site-packages .venv
+. .venv/bin/activate
+pip install -e . --no-deps
+```
+
+`--system-site-packages` bruges bevidst, fordi OpenCV, Picamera2 og ZXing er bedre og hurtigere installeret som Raspberry Pi/Debian-pakker end som pip-builds på selve Pi'en.
+
+## Konfiguration
+
+Kopier eksempelkonfigurationen:
+
+```bash
+cp config.example.toml config.toml
+```
+
+Ret især:
+
+- `upload.protocol`
+- `upload.host`
+- `upload.port`
+- `upload.username`
+- `upload.password`
+- `upload.remote_dir`
+- `barcode.accepted_pattern`
+- `motion.roi`
+
+`motion.roi` er den del af billedet, hvor pallen forventes at dreje. Formatet er normaliseret:
+
+```toml
+roi = [0.10, 0.10, 0.80, 0.80]
+```
+
+Det betyder `x`, `y`, `bredde`, `højde`, hvor `1.0` er hele billedets bredde/højde.
+
+## Kør lokalt
+
+```bash
+pallet-video --config config.toml
+```
+
+Til udvikling uden Pi-kamera kan OpenCV-kamera vælges:
+
+```toml
+[camera]
+backend = "auto"
+opencv_device = 0
+```
+
+`backend = "auto"` vælger Raspberry Pi Camera Module via Picamera2/libcamera, hvis et internt CSI-kamera er detekteret. Hvis der ikke findes et internt kamera, bruges USB-kamera via OpenCV/V4L2.
+
+## Systemd service
+
+Tilpas `systemd/pallet-video.service`, så `WorkingDirectory`, `ExecStart` og bruger passer til Pi'en.
+
+Installér derefter:
+
+```bash
+sudo cp systemd/pallet-video.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pallet-video
+sudo journalctl -u pallet-video -f
+```
+
+## Filnavne
+
+Videoer navngives sådan:
+
+```text
+ORDRENUMMER_20260705_153012.mp4
+```
+
+Hvis privacy-processering er slået til, uploades den behandlede video med samme navn. Råvideoen slettes efter behandlingen, hvis `privacy.delete_source_after_processing = true`.
+
+Hvis privacy-processering fejler, uploades råvideoen ikke automatisk. Den flyttes til `data/failed`, så den kan vurderes manuelt.
+
+## Upload
+
+`upload.protocol` kan være:
+
+- `sftp` - anbefalet, hvis serveren understøtter SSH/SFTP.
+- `ftps` - FTP over TLS.
+- `ftp` - kun hvis der ikke er andre muligheder.
+
+Til SFTP bruges `python3-paramiko` på Pi'en.
+
+## Drift og fejlhåndtering
+
+- Filer i `data/pending` venter på upload.
+- Filer i `data/uploaded` er uploadet, hvis `upload.delete_after_upload = false`.
+- Filer i `data/failed` kræver manuel undersøgelse.
+- Upload genprøves automatisk, så længe Pi'en er tændt.
+- Brug SSD eller stort industrielt SD-kort, hvis der kan være langvarigt netværksudfald.
+
+## Ekstra WiFi-netværk
+
+På Raspberry Pi OS med NetworkManager kan ekstra WiFi-profiler tilføjes sådan:
+
+```bash
+sudo nmcli connection add type wifi ifname wlan0 con-name "NetvaerksNavn" ssid "NetvaerksNavn" \
+  wifi-sec.key-mgmt wpa-psk wifi-sec.psk "WiFiPassword" \
+  connection.autoconnect yes connection.autoconnect-priority 50
+```
+
+Pi'en forbinder automatisk til kendte netværk, når de er tilgængelige. En højere `connection.autoconnect-priority` vælges før en lavere, hvis flere kendte netværk er inden for rækkevidde.
+
+## USB 4G/5G modem
+
+Pi'en kan bruge et USB 4G/5G modem via NetworkManager og ModemManager.
+
+Installer modem-support:
+
+```bash
+sudo apt install -y modemmanager mobile-broadband-provider-info usb-modeswitch ppp
+sudo systemctl enable --now ModemManager
+```
+
+Opret mobilprofil:
+
+```bash
+sudo nmcli connection add type gsm ifname "*" con-name MobileData apn "internet" \
+  connection.autoconnect yes connection.autoconnect-priority 10 \
+  ipv4.method auto ipv4.route-metric 900 \
+  ipv6.method auto ipv6.route-metric 900 \
+  connection.metered yes
+```
+
+Hvis operatøren bruger en anden APN:
+
+```bash
+sudo nmcli connection modify MobileData gsm.apn "OPERATOER_APN"
+```
+
+Nyttige statuskommandoer:
+
+```bash
+mmcli -L
+nmcli device
+nmcli connection show MobileData
+nmcli connection up MobileData
+```
+
+Route-metric er sat højere for mobil end WiFi, så WiFi foretrækkes når det er tilgængeligt, mens mobilforbindelsen kan bruges som fallback. Hvis WiFi er forbundet, men har dårlig eller ingen internetadgang, kan det kræve en aktiv watchdog senere for at tvinge skift til mobil.
+
+## Næste praktiske trin
+
+1. Test barcode-læsning med de faktiske labels fra lageret.
+2. Optag testvideoer ved maskinen og justér `motion.threshold` og `motion.roi`.
+3. Vælg om privacy skal klares primært med kameravinkel/fysisk afskærmning, faste masker eller ansigtsdetektion.
+4. Test upload over både WiFi og mobilforbindelse.
+5. Aftal lokal retention, adgang til FTP-serveren og slettepolitik.

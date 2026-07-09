@@ -1,0 +1,61 @@
+[camera]
+# "auto" foretraekker internt Raspberry Pi CSI-kamera og falder tilbage til USB/OpenCV.
+# "picamera2" eller "opencv" kan bruges til manuel fejlfinding.
+backend = "auto"
+width = 1920
+height = 1080
+preview_width = 640
+preview_height = 360
+fps = 30
+bitrate = 12000000
+opencv_device = 0
+opencv_fourcc = "MJPG"
+
+[barcode]
+scan_every_n_frames = 5
+min_chars = 4
+max_chars = 64
+# Tilpas til jeres ordrenumre. Eksemplet tillader bogstaver, tal, punktum, underscore og bindestreg.
+accepted_pattern = "^[A-Za-z0-9_.-]+$"
+
+[motion]
+# x, y, width, height som andel af billedet.
+roi = [0.08, 0.08, 0.84, 0.84]
+threshold = 0.018
+still_seconds = 4.0
+minimum_recording_seconds = 8.0
+maximum_recording_seconds = 180.0
+require_motion_before_stop = true
+
+[recording]
+root_dir = "data"
+file_extension = ".mp4"
+
+[privacy]
+enabled = false
+face_blur = true
+delete_source_after_processing = true
+# Faste masker er mere forudsigelige end ansigtsdetektion.
+# Eksempel: slør øverste venstre del af billedet.
+fixed_masks = [
+  # [0.0, 0.0, 0.35, 0.25],
+]
+
+[sound]
+enabled = true
+gpio_pin = 18
+duration_seconds = 0.12
+
+[upload]
+enabled = true
+protocol = "sftp" # "sftp", "ftp" eller "ftps"
+host = "ftp.example.com"
+port = 22
+username = "user"
+password = "change-me"
+remote_dir = "/palle-video"
+passive = true
+timeout_seconds = 30
+retry_seconds = 20
+delete_after_upload = false
+temp_suffix = ".part"

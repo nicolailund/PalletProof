@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pallet-video-recorder"
+version = "0.1.0"
+description = "Raspberry Pi service for barcode-triggered pallet wrapping video capture and FTP upload"
+requires-python = ">=3.11"
+dependencies = [
+]
+
+[project.optional-dependencies]
+pip-video = [
+  "numpy>=1.24",
+  "opencv-python>=4.8",
+]
+sftp = [
+  "paramiko>=3.4",
+]
+pi = [
+  "gpiozero>=2.0",
+]
+
+[project.scripts]
+pallet-video = "pallet_video_recorder.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

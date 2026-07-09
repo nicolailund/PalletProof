@@ -1,0 +1,16 @@
+[Unit]
+Description=Pallet video recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=palletcam
+WorkingDirectory=/home/palletcam/pallet-video
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/palletcam/pallet-video/.venv/bin/pallet-video --config /home/palletcam/pallet-video/config.toml
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
