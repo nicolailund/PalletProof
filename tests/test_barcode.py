@@ -26,6 +26,33 @@ class FakeClock:
         self.now += seconds
 
 
+class FakeBarcodeFormatValue:
+    def __init__(self, name: str) -> None:
+        self.names = (name,)
+
+    def __or__(self, other: object) -> "FakeBarcodeFormatValue":
+        result = FakeBarcodeFormatValue("")
+        result.names = self.names + getattr(other, "names")
+        return result
+
+
+class FakeBarcodeFormat:
+    Code128 = FakeBarcodeFormatValue("Code128")
+    Code39 = FakeBarcodeFormatValue("Code39")
+    DataBar = FakeBarcodeFormatValue("DataBar")
+
+
+class FakeZxing:
+    BarcodeFormat = FakeBarcodeFormat
+
+    def __init__(self) -> None:
+        self.last_formats: FakeBarcodeFormatValue | None = None
+
+    def read_barcodes(self, frame: object, formats: FakeBarcodeFormatValue | None = None) -> list[object]:
+        self.last_formats = formats
+        return []
+
+
 class BarcodeReaderTest(unittest.TestCase):
     def test_requires_confirmed_repeated_read(self) -> None:
         reader = BarcodeReader(
@@ -135,6 +162,22 @@ class BarcodeReaderTest(unittest.TestCase):
         self.assertIsNone(reader.read(object()))
         clock.advance(1.1)
         self.assertEqual(reader.read(object()), "ORD-123")
+
+    def test_passes_configured_formats_to_zxing(self) -> None:
+        reader = BarcodeReader(
+            BarcodeConfig(
+                formats=("Code128", "Code39"),
+                ambient_suppress_seconds=0.0,
+            )
+        )
+        fake_zxing = FakeZxing()
+        reader._zxingcpp = fake_zxing
+        reader._zxing_formats = reader._build_zxing_formats()
+
+        self.assertEqual(reader._decode(object()), [])
+
+        assert fake_zxing.last_formats is not None
+        self.assertEqual(fake_zxing.last_formats.names, ("Code128", "Code39"))
 
     @unittest.skipIf(np is None or cv2 is None, "numpy/opencv are not installed")
     def test_arbitrary_rotation_expands_canvas(self) -> None:

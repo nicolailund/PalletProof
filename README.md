@@ -89,6 +89,7 @@ Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at v
 
 - `barcode.roi` begrænser scanningen til den del af billedet, hvor lageret viser labelen.
 - `barcode.rotation_degrees` prøver mange orienteringer i 15-graders trin, så labelen kan holdes skævt.
+- `barcode.formats` begrænser dekoderen til forventede barcode-typer. DataBar er som standard udeladt, fordi den gav falske fund på støj/reflekser i testbilleder.
 - `barcode.scan_scales` kan opskalere billedet, hvis labelen er lille eller langt fra kameraet.
 - `barcode.preprocess` prøver ekstra gråskala-, kontrast- og threshold-varianter.
 - `barcode.confirm_read_count = 2` kræver samme gyldige kode på to frames. Ved 30 fps føles det stadig øjeblikkeligt, men dæmper enkelt-frame fejllæsninger.
@@ -96,7 +97,7 @@ Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at v
 - `barcode.ambient_suppress_seconds` ignorerer koder, der allerede er synlige lige efter service-start eller lige efter en optagelse.
 - `barcode.validate_gs1_ai01_check_digit` validerer checkcifferet for GS1 AI(01)-værdier.
 
-Barcode-scanningen kører på kameraets preview-stream. `camera.preview_width` og `camera.preview_height` bør derfor ikke sættes for lavt; `1280x720` er et bedre udgangspunkt end `640x360` til håndholdte labels.
+Barcode-scanningen kører på kameraets preview-stream. `camera.preview_width` og `camera.preview_height` bør derfor ikke sættes for lavt; `1280x720` er et bedre udgangspunkt end `640x360` til håndholdte labels. For Raspberry Pi Camera Module 3 bruges `camera.autofocus_range = "full"` og `camera.autofocus_speed = "fast"` som udgangspunkt, så kameraet hurtigere kan stille skarpt på labels tæt på linsen.
 
 Standardfilteret tillader også Code 39-specialtegn som `$`, `/`, `+` og `%` samt GS1-lignende parentesformat, fx `(01)08584012360472`. AI(01)-værdier valideres som GTIN-14, når `barcode.validate_gs1_ai01_check_digit = true`. Tegn, der ikke er sikre i filnavne, bliver saniteret væk i videofilnavnet, så filen ender med et sikkert navn som `01_08584012360472_YYYYMMDD_HHMMSS.mp4`.
 

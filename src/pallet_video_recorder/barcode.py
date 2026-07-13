@@ -18,6 +18,7 @@ class BarcodeReader:
         self._clock = clock
         self.accepted_pattern = re.compile(config.accepted_pattern)
         self._zxingcpp = self._optional_import("zxingcpp")
+        self._zxing_formats = self._build_zxing_formats()
         self._cv2 = _optional_cv2()
         self._pyzbar_decode = None
         self._recent_reads: deque[tuple[str, float]] = deque()
@@ -62,7 +63,7 @@ class BarcodeReader:
     def _decode(self, frame: Any) -> list[str]:
         if self._zxingcpp is not None:
             try:
-                results = self._zxingcpp.read_barcodes(frame)
+                results = self._zxingcpp.read_barcodes(frame, formats=self._zxing_formats)
                 return [result.text for result in results if getattr(result, "text", None)]
             except Exception as exc:
                 LOGGER.debug("zxing-cpp decode failed: %s", exc)
@@ -160,6 +161,20 @@ class BarcodeReader:
             return __import__(module_name)
         except Exception:
             return None
+
+    def _build_zxing_formats(self) -> Any | None:
+        if self._zxingcpp is None or not self.config.formats:
+            return None
+
+        combined = None
+        for format_name in self.config.formats:
+            try:
+                barcode_format = getattr(self._zxingcpp.BarcodeFormat, format_name)
+            except AttributeError:
+                LOGGER.warning("Ignoring unknown zxing barcode format: %s", format_name)
+                continue
+            combined = barcode_format if combined is None else combined | barcode_format
+        return combined
 
 
 def _optional_cv2() -> Any | None:

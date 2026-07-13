@@ -12,6 +12,9 @@ opencv_device = 0
 opencv_fourcc = "MJPG"
 # Camera Module 3 bruger autofocus; "continuous" er bedst til håndholdte labels.
 autofocus_mode = "continuous"
+# "full" tillader både nær og fjern fokus; "fast" reagerer hurtigere når en label vises.
+autofocus_range = "full"
+autofocus_speed = "fast"
 
 [barcode]
 scan_every_n_frames = 1
@@ -27,6 +30,12 @@ rotation_degrees = [
   0, 90, 180, 270,
   15, 345, 30, 330, 45, 315, 60, 300, 75, 285,
   105, 255, 120, 240, 135, 225, 150, 210, 165, 195,
+]
+# Begræns dekoderen til de relevante barcode-typer. DataBar er udeladt, fordi den gav støjende falske fund i testbilleder.
+formats = [
+  "Code128", "Code39", "Code93", "Codabar", "ITF",
+  "EAN13", "EAN8", "UPCA", "UPCE",
+  "QRCode", "DataMatrix", "PDF417",
 ]
 # Opskalering hjælper små/fjerne labels, men koster CPU.
 scan_scales = [1.0, 1.5]

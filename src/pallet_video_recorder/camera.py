@@ -159,11 +159,59 @@ class PiCamera2FrameSource:
             return
 
         assert self.picam2 is not None
+        control_values: dict[str, Any] = {"AfMode": af_mode}
+        af_range = _enum_control_value(
+            controls,
+            "AfRangeEnum",
+            self.config.autofocus_range,
+            {"default", ""},
+        )
+        if af_range is not None:
+            control_values["AfRange"] = af_range
+        af_speed = _enum_control_value(
+            controls,
+            "AfSpeedEnum",
+            self.config.autofocus_speed,
+            {"default", ""},
+        )
+        if af_speed is not None:
+            control_values["AfSpeed"] = af_speed
+
         try:
-            self.picam2.set_controls({"AfMode": af_mode})
-            LOGGER.info("Set Picamera2 autofocus mode to %s", mode)
+            self.picam2.set_controls(control_values)
+            LOGGER.info(
+                "Set Picamera2 autofocus controls: mode=%s range=%s speed=%s",
+                mode,
+                self.config.autofocus_range,
+                self.config.autofocus_speed,
+            )
         except Exception as exc:  # pragma: no cover - hardware dependent
-            LOGGER.warning("Could not set Picamera2 autofocus mode to %s: %s", mode, exc)
+            LOGGER.warning("Could not set Picamera2 autofocus controls %s: %s", control_values, exc)
+
+
+def _enum_control_value(
+    controls: Any,
+    enum_name: str,
+    raw_value: str,
+    skip_values: set[str],
+) -> Any | None:
+    value = raw_value.lower()
+    if value in skip_values:
+        return None
+
+    enum = getattr(controls, enum_name, None)
+    if enum is None:
+        LOGGER.warning("libcamera controls has no %s; ignoring %s", enum_name, raw_value)
+        return None
+
+    for name in dir(enum):
+        if name.startswith("_"):
+            continue
+        if name.lower() == value:
+            return getattr(enum, name)
+
+    LOGGER.warning("Unknown %s value %r; ignoring it", enum_name, raw_value)
+    return None
 
 
 class OpenCvFrameSource:

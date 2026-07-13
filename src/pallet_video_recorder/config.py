@@ -19,6 +19,8 @@ class CameraConfig:
     opencv_device: int = 0
     opencv_fourcc: str = "MJPG"
     autofocus_mode: str = "continuous"
+    autofocus_range: str = "full"
+    autofocus_speed: str = "fast"
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,20 @@ class BarcodeConfig:
         210,
         165,
         195,
+    )
+    formats: tuple[str, ...] = (
+        "Code128",
+        "Code39",
+        "Code93",
+        "Codabar",
+        "ITF",
+        "EAN13",
+        "EAN8",
+        "UPCA",
+        "UPCE",
+        "QRCode",
+        "DataMatrix",
+        "PDF417",
     )
     scan_scales: tuple[float, ...] = (1.0, 1.5)
     preprocess: bool = True
@@ -193,6 +209,8 @@ def _build_barcode(raw: dict[str, Any]) -> BarcodeConfig:
         values["roi"] = _roi_tuple(values["roi"])
     if "rotation_degrees" in values:
         values["rotation_degrees"] = _int_tuple(values["rotation_degrees"], "rotation_degrees")
+    if "formats" in values:
+        values["formats"] = _str_tuple(values["formats"], "formats")
     if "scan_scales" in values:
         values["scan_scales"] = _positive_float_tuple(values["scan_scales"], "scan_scales")
 
@@ -267,6 +285,12 @@ def _positive_float_tuple(value: Any, name: str) -> tuple[float, ...]:
     if any(part <= 0 for part in result):
         raise ValueError(f"{name} values must be positive")
     return result
+
+
+def _str_tuple(value: Any, name: str) -> tuple[str, ...]:
+    if not value:
+        raise ValueError(f"{name} must contain at least one value")
+    return tuple(str(part) for part in value)
 
 
 def _validate_sysfs_token(value: str, name: str) -> None:
