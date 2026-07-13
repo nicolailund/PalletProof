@@ -22,7 +22,8 @@ MVP til en Raspberry Pi 5 med kamera ved en folieringsmaskine:
 - Raspberry Pi Camera Module 3 eller HQ-kamera, afhængigt af afstand og lys.
 - Fast montering på siden af folieringsmaskinen.
 - Ekstra LED-lys hvis lagerlyset varierer.
-- Lille buzzer på GPIO eller USB-/jack-højttaler.
+- Panelmonteret statuslampe eller RGB-LED: grøn = klar, gul = stregkode læst, rød = optager/færdiggør.
+- Valgfri buzzer på GPIO eller USB-/jack-højttaler, hvis lydfeedback giver mening.
 - Industrielt microSD eller SSD via USB til lokal kø.
 - Valgfrit 4G/5G USB-modem eller router, hvis WiFi er ustabilt.
 
@@ -55,6 +56,7 @@ Ret især:
 - `upload.password`
 - `upload.remote_dir`
 - `barcode.accepted_pattern`
+- `barcode.roi`
 - `motion.roi`
 
 `motion.roi` er den del af billedet, hvor pallen forventes at dreje. Formatet er normaliseret:
@@ -80,6 +82,68 @@ opencv_device = 0
 ```
 
 `backend = "auto"` vælger Raspberry Pi Camera Module via Picamera2/libcamera, hvis et internt CSI-kamera er detekteret. Hvis der ikke findes et internt kamera, bruges USB-kamera via OpenCV/V4L2.
+
+## Kamerabaseret stregkodelæsning
+
+Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at være perfekt vandret:
+
+- `barcode.roi` begrænser scanningen til den del af billedet, hvor lageret viser labelen.
+- `barcode.rotation_degrees` prøver flere orienteringer, fx 0, 90, 180 og 270 grader.
+- `barcode.scan_scales` kan opskalere billedet, hvis labelen er lille eller langt fra kameraet.
+- `barcode.preprocess` prøver ekstra gråskala-, kontrast- og threshold-varianter.
+- `barcode.confirm_read_count` kræver samme læsning flere gange, før optagelsen starter.
+- `barcode.duplicate_suppress_seconds` forhindrer, at samme synlige label starter en ny optagelse straks efter stop.
+
+Til drift bør `barcode.roi`, lys, afstand og fokus testes med de faktiske lagerlabels. Hvis CPU-belastningen bliver for høj, er første justering at snævre `barcode.roi` ind og reducere `barcode.scan_scales` eller `barcode.rotation_degrees`.
+
+## Midlertidig scan-feedback med Piens ACT-LED
+
+Hvis der ikke er monteret buzzer eller ekstern lampe endnu, kan appen blinke Raspberry Piens indbyggede grønne ACT-LED, når en stregkode er godkendt.
+
+```toml
+[status_light]
+enabled = true
+backend = "act_led"
+scan_flash_seconds = 0.8
+sysfs_led_name = "ACT"
+restore_trigger = "mmc0"
+```
+
+ACT-LEDen sidder på selve Pi-boardet. Den bliver kun overtaget kort under scan-kvitteringen og sættes derefter tilbage til normal SD-kort-aktivitet.
+
+## Statuslampe på GPIO
+
+`status_light` bruger to GPIO-udgange:
+
+- grøn LED-kanal = idle/klar
+- rød LED-kanal = optager
+- rød + grøn samtidig = gul, vist kort efter at en stregkode er læst
+
+Standardkonfigurationen bruger BCM-nummerering:
+
+```toml
+[status_light]
+enabled = true
+backend = "gpio"
+red_gpio_pin = 27
+green_gpio_pin = 17
+# Valgfri: brug kun hvis lampen har separat gul indgang.
+# yellow_gpio_pin = 22
+active_high = true
+scan_flash_seconds = 0.4
+```
+
+Direkte prototype med en lille common-cathode RGB-LED eller bicolor rød/grøn LED:
+
+```text
+GPIO17 / fysisk pin 11 -> 330-470 ohm -> grøn LED-ben
+GPIO27 / fysisk pin 13 -> 330-470 ohm -> rød LED-ben
+GND    / fysisk pin 14 -> fælles cathode/GND
+```
+
+Brug én modstand pr. farvekanal. Til en panelmonteret 12V/24V industrilampe må GPIO ikke drive lampen direkte; brug transistor/MOSFET/ULN-driver eller et optoisoleret driver-modul mellem Pi og lampen.
+
+Hvis industrilampen har en separat gul indgang i stedet for at blande rød og grøn, sæt `yellow_gpio_pin` og brug samme driverprincip for den tredje kanal.
 
 ## Systemd service
 

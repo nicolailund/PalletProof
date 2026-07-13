@@ -19,8 +19,22 @@ root_dir = "data"
 [motion]
 roi = [0.1, 0.2, 0.3, 0.4]
 
+[barcode]
+roi = [0.2, 0.1, 0.5, 0.7]
+rotation_degrees = [0, 90]
+scan_scales = [1.0, 2.0]
+
 [privacy]
 fixed_masks = [[0.0, 0.0, 0.2, 0.2]]
+
+[status_light]
+backend = "act_led"
+red_gpio_pin = 27
+green_gpio_pin = 17
+yellow_gpio_pin = 22
+scan_flash_seconds = 0.2
+sysfs_led_name = "ACT"
+restore_trigger = "mmc0"
 """,
                 encoding="utf-8",
             )
@@ -28,7 +42,17 @@ fixed_masks = [[0.0, 0.0, 0.2, 0.2]]
             config = load_config(config_path)
 
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))
+            self.assertEqual(config.barcode.roi, (0.2, 0.1, 0.5, 0.7))
+            self.assertEqual(config.barcode.rotation_degrees, (0, 90))
+            self.assertEqual(config.barcode.scan_scales, (1.0, 2.0))
             self.assertEqual(config.privacy.fixed_masks, ((0.0, 0.0, 0.2, 0.2),))
+            self.assertEqual(config.status_light.red_gpio_pin, 27)
+            self.assertEqual(config.status_light.green_gpio_pin, 17)
+            self.assertEqual(config.status_light.yellow_gpio_pin, 22)
+            self.assertEqual(config.status_light.scan_flash_seconds, 0.2)
+            self.assertEqual(config.status_light.backend, "act_led")
+            self.assertEqual(config.status_light.sysfs_led_name, "ACT")
+            self.assertEqual(config.status_light.restore_trigger, "mmc0")
 
 
 if __name__ == "__main__":

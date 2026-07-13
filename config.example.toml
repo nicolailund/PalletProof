@@ -12,11 +12,24 @@ opencv_device = 0
 opencv_fourcc = "MJPG"
 
 [barcode]
-scan_every_n_frames = 5
+scan_every_n_frames = 3
 min_chars = 4
 max_chars = 64
 # Tilpas til jeres ordrenumre. Eksemplet tillader bogstaver, tal, punktum, underscore og bindestreg.
 accepted_pattern = "^[A-Za-z0-9_.-]+$"
+# x, y, width, height for barcode-scan-zonen. Start bredt, og snævr ind hvis kameraet ser for meget støj.
+roi = [0.0, 0.0, 1.0, 1.0]
+# Prøv flere orienteringer, så labelen ikke skal holdes perfekt vandret.
+rotation_degrees = [0, 90, 180, 270]
+# Opskalering hjælper små/fjerne labels, men koster CPU.
+scan_scales = [1.0, 1.5]
+# Ekstra gråskala/kontrast/threshold-forsøg hjælper ved svagt lys eller lav kontrast.
+preprocess = true
+# Kræv samme læsning flere gange tæt på hinanden før optagelse startes.
+confirm_read_count = 2
+confirm_window_seconds = 1.5
+# Undgå at samme synlige label starter en ny optagelse lige efter stop.
+duplicate_suppress_seconds = 8.0
 
 [motion]
 # x, y, width, height som andel af billedet.
@@ -42,9 +55,27 @@ fixed_masks = [
 ]
 
 [sound]
-enabled = true
+enabled = false
 gpio_pin = 18
 duration_seconds = 0.12
+
+[status_light]
+enabled = true
+# "gpio" bruger eksterne LED/lampemoduler. "act_led" blinker Pi'ens indbyggede groenne ACT-LED.
+backend = "gpio"
+# BCM-nummerering: GPIO27 er fysisk pin 13, GPIO17 er fysisk pin 11.
+red_gpio_pin = 27
+green_gpio_pin = 17
+# Hvis lampen har separat gul indgang, kan den sættes her, fx 22.
+# Hvis den udelades, laves gul ved at tænde rød + grøn samtidig.
+# yellow_gpio_pin = 22
+# true passer til common-cathode LED eller transistor-driver, hvor GPIO high tænder farven.
+active_high = true
+# Gul vises kort efter godkendt stregkode, før optagelsen starter og lampen bliver rød.
+scan_flash_seconds = 0.4
+# Bruges kun med backend = "act_led".
+sysfs_led_name = "ACT"
+restore_trigger = "mmc0"
 
 [upload]
 enabled = true

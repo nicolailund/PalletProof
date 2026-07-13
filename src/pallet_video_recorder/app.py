@@ -13,6 +13,7 @@ from .filenames import build_video_name
 from .motion import MotionDetector
 from .privacy import PrivacyProcessor
 from .sound import Beeper
+from .status_light import StatusLight
 from .uploader import UploadWorker
 
 LOGGER = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ class PalletVideoApp:
         self.motion_detector = MotionDetector(config.motion)
         self.privacy_processor = PrivacyProcessor(config.privacy)
         self.beeper = Beeper(config.sound)
+        self.status_light = StatusLight(config.status_light)
 
     def run(self) -> None:
         self.config.paths.ensure()
@@ -50,6 +52,7 @@ class PalletVideoApp:
         frame_number = 0
 
         LOGGER.info("Ready for barcode scan")
+        self.status_light.idle()
         while self.running:
             frame = self.frame_source.capture_preview()
             if frame is None:
@@ -83,6 +86,7 @@ class PalletVideoApp:
                 active = None
                 self.motion_detector.reset()
                 LOGGER.info("Ready for next barcode scan")
+                self.status_light.idle()
 
         if active is not None:
             LOGGER.info("Application stopping with active recording; finalizing it")
@@ -98,6 +102,7 @@ class PalletVideoApp:
         if self.frame_source is not None:
             self.frame_source.close()
         self.beeper.close()
+        self.status_light.close()
 
     def _read_barcode(self, frame: object, frame_number: int) -> str | None:
         if frame_number % self.config.barcode.scan_every_n_frames != 0:
@@ -109,6 +114,7 @@ class PalletVideoApp:
 
         LOGGER.info("Read barcode/order number: %s", barcode)
         self.beeper.beep()
+        self.status_light.scanned()
         return barcode
 
     def _start_recording(self, order_number: str) -> ActiveRecording:
@@ -118,6 +124,7 @@ class PalletVideoApp:
 
         assert self.frame_source is not None
         self.frame_source.start_recording(in_progress_path)
+        self.status_light.recording()
         return ActiveRecording(
             order_number=order_number,
             started_at=time.monotonic(),

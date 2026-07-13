@@ -3,6 +3,7 @@ from __future__ import annotations
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -21,10 +22,17 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class BarcodeConfig:
-    scan_every_n_frames: int = 5
+    scan_every_n_frames: int = 3
     min_chars: int = 4
     max_chars: int = 64
     accepted_pattern: str = r"^[A-Za-z0-9_.-]+$"
+    roi: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)
+    rotation_degrees: tuple[int, ...] = (0, 90, 180, 270)
+    scan_scales: tuple[float, ...] = (1.0, 1.5)
+    preprocess: bool = True
+    confirm_read_count: int = 2
+    confirm_window_seconds: float = 1.5
+    duplicate_suppress_seconds: float = 8.0
 
 
 @dataclass(frozen=True)
@@ -53,9 +61,22 @@ class PrivacyConfig:
 
 @dataclass(frozen=True)
 class SoundConfig:
-    enabled: bool = True
+    enabled: bool = False
     gpio_pin: int = 18
     duration_seconds: float = 0.12
+
+
+@dataclass(frozen=True)
+class StatusLightConfig:
+    enabled: bool = True
+    backend: str = "gpio"
+    red_gpio_pin: int = 27
+    green_gpio_pin: int = 17
+    yellow_gpio_pin: int | None = None
+    active_high: bool = True
+    scan_flash_seconds: float = 0.4
+    sysfs_led_name: str = "ACT"
+    restore_trigger: str = "mmc0"
 
 
 @dataclass(frozen=True)
@@ -105,6 +126,7 @@ class AppConfig:
     recording: RecordingConfig = field(default_factory=RecordingConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     sound: SoundConfig = field(default_factory=SoundConfig)
+    status_light: StatusLightConfig = field(default_factory=StatusLightConfig)
     upload: UploadConfig = field(default_factory=UploadConfig)
     paths: Paths = field(default_factory=lambda: Paths.from_root(Path("data")))
 
@@ -118,11 +140,12 @@ def load_config(path: Path) -> AppConfig:
 
     return AppConfig(
         camera=_dataclass_from_dict(CameraConfig, raw.get("camera", {})),
-        barcode=_dataclass_from_dict(BarcodeConfig, raw.get("barcode", {})),
+        barcode=_build_barcode(raw.get("barcode", {})),
         motion=_build_motion(raw.get("motion", {})),
         recording=recording,
         privacy=_build_privacy(raw.get("privacy", {})),
         sound=_dataclass_from_dict(SoundConfig, raw.get("sound", {})),
+        status_light=_build_status_light(raw.get("status_light", {})),
         upload=_dataclass_from_dict(UploadConfig, raw.get("upload", {})),
         paths=paths,
     )
@@ -133,6 +156,29 @@ def _build_recording(raw: dict[str, Any]) -> RecordingConfig:
     if "root_dir" in values:
         values["root_dir"] = Path(values["root_dir"])
     return _dataclass_from_dict(RecordingConfig, values)
+
+
+def _build_barcode(raw: dict[str, Any]) -> BarcodeConfig:
+    values = dict(raw)
+    if "roi" in values:
+        values["roi"] = _roi_tuple(values["roi"])
+    if "rotation_degrees" in values:
+        values["rotation_degrees"] = _int_tuple(values["rotation_degrees"], "rotation_degrees")
+    if "scan_scales" in values:
+        values["scan_scales"] = _positive_float_tuple(values["scan_scales"], "scan_scales")
+
+    config = _dataclass_from_dict(BarcodeConfig, values)
+    if config.scan_every_n_frames < 1:
+        raise ValueError("barcode.scan_every_n_frames must be at least 1")
+    if config.min_chars < 1 or config.max_chars < config.min_chars:
+        raise ValueError("barcode min/max character limits are invalid")
+    if config.confirm_read_count < 1:
+        raise ValueError("barcode.confirm_read_count must be at least 1")
+    if config.confirm_window_seconds <= 0:
+        raise ValueError("barcode.confirm_window_seconds must be positive")
+    if config.duplicate_suppress_seconds < 0:
+        raise ValueError("barcode.duplicate_suppress_seconds cannot be negative")
+    return config
 
 
 def _build_motion(raw: dict[str, Any]) -> MotionConfig:
@@ -149,6 +195,22 @@ def _build_privacy(raw: dict[str, Any]) -> PrivacyConfig:
     return _dataclass_from_dict(PrivacyConfig, values)
 
 
+def _build_status_light(raw: dict[str, Any]) -> StatusLightConfig:
+    config = _dataclass_from_dict(StatusLightConfig, raw)
+    if config.backend not in {"gpio", "act_led"}:
+        raise ValueError("status_light.backend must be 'gpio' or 'act_led'")
+    if config.scan_flash_seconds < 0:
+        raise ValueError("status_light.scan_flash_seconds cannot be negative")
+    pins = [config.red_gpio_pin, config.green_gpio_pin]
+    if config.yellow_gpio_pin is not None:
+        pins.append(config.yellow_gpio_pin)
+    if len(set(pins)) != len(pins):
+        raise ValueError("status_light GPIO pins must be different")
+    _validate_sysfs_token(config.sysfs_led_name, "status_light.sysfs_led_name")
+    _validate_sysfs_token(config.restore_trigger, "status_light.restore_trigger")
+    return config
+
+
 def _roi_tuple(value: Any) -> tuple[float, float, float, float]:
     if len(value) != 4:
         raise ValueError(f"ROI/mask must contain 4 values, got {value!r}")
@@ -157,6 +219,26 @@ def _roi_tuple(value: Any) -> tuple[float, float, float, float]:
     if x < 0 or y < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
         raise ValueError(f"ROI/mask must be normalized inside the image, got {value!r}")
     return result
+
+
+def _int_tuple(value: Any, name: str) -> tuple[int, ...]:
+    if not value:
+        raise ValueError(f"{name} must contain at least one value")
+    return tuple(int(part) for part in value)
+
+
+def _positive_float_tuple(value: Any, name: str) -> tuple[float, ...]:
+    if not value:
+        raise ValueError(f"{name} must contain at least one value")
+    result = tuple(float(part) for part in value)
+    if any(part <= 0 for part in result):
+        raise ValueError(f"{name} values must be positive")
+    return result
+
+
+def _validate_sysfs_token(value: str, name: str) -> None:
+    if re.fullmatch(r"[A-Za-z0-9:_-]+", value) is None:
+        raise ValueError(f"{name} may only contain letters, numbers, colon, underscore or dash")
 
 
 def _dataclass_from_dict(cls: type[Any], values: dict[str, Any]) -> Any:
