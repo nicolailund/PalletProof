@@ -26,6 +26,7 @@ class BarcodeReader:
         self._last_accepted_at = 0.0
         self._ambient_until = 0.0
         self._ambient_values: dict[str, float] = {}
+        self._ambient_logged_values: set[str] = set()
         if self._zxingcpp is None:
             try:
                 from pyzbar.pyzbar import decode
@@ -38,6 +39,7 @@ class BarcodeReader:
     def start_ambient_suppression(self) -> None:
         self._recent_reads.clear()
         self._ambient_values.clear()
+        self._ambient_logged_values.clear()
         self._ambient_until = self._clock() + self.config.ambient_suppress_seconds
 
     def read(self, frame: Any) -> str | None:
@@ -129,12 +131,14 @@ class BarcodeReader:
     def _is_ambient(self, value: str, now: float) -> bool:
         if now < self._ambient_until:
             self._ambient_values[value] = now
+            self._log_ambient_value(value)
             return True
 
         if value not in self._ambient_values:
             return False
 
         self._ambient_values[value] = now
+        self._log_ambient_value(value)
         return True
 
     def _expire_ambient_values(self, now: float) -> None:
@@ -142,6 +146,17 @@ class BarcodeReader:
         expired = [value for value, last_seen in self._ambient_values.items() if last_seen < cutoff]
         for value in expired:
             del self._ambient_values[value]
+            self._ambient_logged_values.discard(value)
+
+    def _log_ambient_value(self, value: str) -> None:
+        if value in self._ambient_logged_values:
+            return
+        self._ambient_logged_values.add(value)
+        LOGGER.info(
+            "Ignoring barcode already visible during scan warmup: %s; remove it for %.1fs and show it again",
+            value,
+            self.config.ambient_absent_seconds,
+        )
 
     def _normalize(self, raw_value: str) -> str | None:
         value = raw_value.strip()
