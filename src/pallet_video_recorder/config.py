@@ -56,9 +56,12 @@ class BarcodeConfig:
     )
     scan_scales: tuple[float, ...] = (1.0, 1.5)
     preprocess: bool = True
-    confirm_read_count: int = 1
+    confirm_read_count: int = 2
     confirm_window_seconds: float = 1.5
     duplicate_suppress_seconds: float = 8.0
+    ambient_suppress_seconds: float = 2.0
+    ambient_absent_seconds: float = 2.0
+    validate_gs1_ai01_check_digit: bool = True
 
 
 @dataclass(frozen=True)
@@ -204,6 +207,10 @@ def _build_barcode(raw: dict[str, Any]) -> BarcodeConfig:
         raise ValueError("barcode.confirm_window_seconds must be positive")
     if config.duplicate_suppress_seconds < 0:
         raise ValueError("barcode.duplicate_suppress_seconds cannot be negative")
+    if config.ambient_suppress_seconds < 0:
+        raise ValueError("barcode.ambient_suppress_seconds cannot be negative")
+    if config.ambient_absent_seconds <= 0:
+        raise ValueError("barcode.ambient_absent_seconds must be positive")
     return config
 
 

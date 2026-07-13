@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import re
 from typing import Any
 
@@ -13,8 +13,9 @@ LOGGER = logging.getLogger(__name__)
 
 
 class BarcodeReader:
-    def __init__(self, config: BarcodeConfig) -> None:
+    def __init__(self, config: BarcodeConfig, clock: Callable[[], float] = time.monotonic) -> None:
         self.config = config
+        self._clock = clock
         self.accepted_pattern = re.compile(config.accepted_pattern)
         self._zxingcpp = self._optional_import("zxingcpp")
         self._cv2 = _optional_cv2()
@@ -22,6 +23,8 @@ class BarcodeReader:
         self._recent_reads: deque[tuple[str, float]] = deque()
         self._last_accepted_value: str | None = None
         self._last_accepted_at = 0.0
+        self._ambient_until = 0.0
+        self._ambient_values: dict[str, float] = {}
         if self._zxingcpp is None:
             try:
                 from pyzbar.pyzbar import decode
@@ -29,15 +32,24 @@ class BarcodeReader:
                 self._pyzbar_decode = decode
             except Exception as exc:  # pragma: no cover - depends on host libraries
                 LOGGER.warning("No barcode backend loaded: %s", exc)
+        self.start_ambient_suppression()
+
+    def start_ambient_suppression(self) -> None:
+        self._recent_reads.clear()
+        self._ambient_values.clear()
+        self._ambient_until = self._clock() + self.config.ambient_suppress_seconds
 
     def read(self, frame: Any) -> str | None:
-        now = time.monotonic()
+        now = self._clock()
+        self._expire_ambient_values(now)
         seen_values: set[str] = set()
         for raw_value in self._read_values(frame):
             value = self._normalize(raw_value)
             if not value or value in seen_values:
                 continue
             seen_values.add(value)
+            if self._is_ambient(value, now):
+                continue
             accepted = self._confirm_read(value, now)
             if accepted is not None:
                 return accepted
@@ -113,12 +125,32 @@ class BarcodeReader:
         while self._recent_reads and self._recent_reads[0][1] < cutoff:
             self._recent_reads.popleft()
 
+    def _is_ambient(self, value: str, now: float) -> bool:
+        if now < self._ambient_until:
+            self._ambient_values[value] = now
+            return True
+
+        if value not in self._ambient_values:
+            return False
+
+        self._ambient_values[value] = now
+        return True
+
+    def _expire_ambient_values(self, now: float) -> None:
+        cutoff = now - self.config.ambient_absent_seconds
+        expired = [value for value, last_seen in self._ambient_values.items() if last_seen < cutoff]
+        for value in expired:
+            del self._ambient_values[value]
+
     def _normalize(self, raw_value: str) -> str | None:
         value = raw_value.strip()
         if len(value) < self.config.min_chars or len(value) > self.config.max_chars:
             return None
         if not self.accepted_pattern.match(value):
             LOGGER.warning("Ignoring barcode outside accepted pattern: %r", value)
+            return None
+        if self.config.validate_gs1_ai01_check_digit and not _has_valid_gs1_ai01(value):
+            LOGGER.warning("Ignoring GS1 AI(01) barcode with invalid check digit: %r", value)
             return None
         return value
 
@@ -137,6 +169,19 @@ def _optional_cv2() -> Any | None:
         return cv2
     except Exception:
         return None
+
+
+def _has_valid_gs1_ai01(value: str) -> bool:
+    match = re.fullmatch(r"\(01\)(\d{14})", value)
+    if match is None:
+        return True
+
+    gtin = match.group(1)
+    body = gtin[:-1]
+    check_digit = int(gtin[-1])
+    total = sum(int(digit) * (3 if index % 2 == 0 else 1) for index, digit in enumerate(body))
+    expected = (10 - (total % 10)) % 10
+    return check_digit == expected
 
 
 def _crop_normalized(frame: Any, roi: tuple[float, float, float, float]) -> Any:

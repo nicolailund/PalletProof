@@ -32,11 +32,16 @@ rotation_degrees = [
 scan_scales = [1.0, 1.5]
 # Ekstra gråskala/kontrast/threshold-forsøg hjælper ved svagt lys eller lav kontrast.
 preprocess = true
-# Start optagelsen ved første gyldige læsning. Sæt til 2, hvis der kommer falske læsninger.
-confirm_read_count = 1
+# Start optagelsen når samme gyldige kode er læst på to frames.
+confirm_read_count = 2
 confirm_window_seconds = 1.5
 # Undgå at samme synlige label starter en ny optagelse lige efter stop.
 duplicate_suppress_seconds = 8.0
+# Ignorer koder, der allerede er synlige lige efter start eller lige efter en optagelse.
+ambient_suppress_seconds = 2.0
+ambient_absent_seconds = 2.0
+# Valider GTIN-14 checkcifferet for GS1 AI(01)-værdier som (01)08584012360472.
+validate_gs1_ai01_check_digit = true
 
 [motion]
 # x, y, width, height som andel af billedet.

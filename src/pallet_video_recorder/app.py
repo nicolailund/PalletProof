@@ -85,6 +85,7 @@ class PalletVideoApp:
                 self._finish_recording(active)
                 active = None
                 self.motion_detector.reset()
+                self.barcode_reader.start_ambient_suppression()
                 LOGGER.info("Ready for next barcode scan")
                 self.status_light.idle()
 
