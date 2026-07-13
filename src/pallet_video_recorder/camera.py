@@ -75,6 +75,7 @@ class PiCamera2FrameSource:
         self.config = config
         self.camera_num = camera_num
         self.picam2: Any | None = None
+        self.encoder: Any | None = None
 
     def start(self) -> None:
         try:
@@ -107,6 +108,8 @@ class PiCamera2FrameSource:
 
     def start_recording(self, output_path: Path) -> None:
         assert self.picam2 is not None
+        if self.encoder is not None:
+            raise RuntimeError("Picamera2 recording is already active")
         try:
             from picamera2.encoders import H264Encoder
             from picamera2.outputs import FfmpegOutput
@@ -115,17 +118,24 @@ class PiCamera2FrameSource:
 
         encoder = H264Encoder(bitrate=self.config.bitrate)
         output = FfmpegOutput(str(output_path))
-        self.picam2.start_recording(encoder, output)
+        self.picam2.start_encoder(encoder, output, name="main")
+        self.encoder = encoder
+        LOGGER.info("Started Picamera2 video encoder for %s", output_path)
 
     def note_frame(self, frame: Any) -> None:
         return None
 
     def stop_recording(self) -> None:
         assert self.picam2 is not None
-        self.picam2.stop_recording()
+        if self.encoder is None:
+            return
+        self.picam2.stop_encoder(self.encoder)
+        self.encoder = None
+        LOGGER.info("Stopped Picamera2 video encoder; camera remains running")
 
     def close(self) -> None:
         if self.picam2 is not None:
+            self.stop_recording()
             self.picam2.close()
             self.picam2 = None
 
