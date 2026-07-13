@@ -41,6 +41,7 @@ class PalletVideoApp:
         self.preview_server = CameraPreviewServer(config.preview)
         self.beeper = Beeper(config.sound)
         self.status_light = StatusLight(config.status_light)
+        self._last_scan_status_logged_at = 0.0
 
     def run(self) -> None:
         self.config.paths.ensure()
@@ -68,6 +69,7 @@ class PalletVideoApp:
             self.preview_server.update_frame(frame)
 
             if active is None:
+                self._log_scan_status(frame_number)
                 order_number = self._read_barcode(frame, frame_number)
                 if order_number:
                     active = self._start_recording(order_number)
@@ -125,6 +127,24 @@ class PalletVideoApp:
 
         self.barcode_scanner.submit(frame)
         return None
+
+    def _log_scan_status(self, frame_number: int) -> None:
+        now = time.monotonic()
+        if now - self._last_scan_status_logged_at < 10.0:
+            return
+        self._last_scan_status_logged_at = now
+        stats = self.barcode_scanner.stats()
+        LOGGER.info(
+            "BARCODE_SCAN_STATUS frames=%s submitted=%s completed=%s busy=%s current=%s last=%s queued=%s last_result=%s",
+            frame_number,
+            stats.submitted_count,
+            stats.completed_count,
+            stats.busy,
+            _seconds_text(stats.current_elapsed_seconds),
+            _seconds_text(stats.last_duration_seconds),
+            stats.queued_results,
+            stats.last_result or "-",
+        )
 
     def _start_recording(self, order_number: str) -> ActiveRecording:
         final_name = build_video_name(order_number, self.config.recording.file_extension)
@@ -190,3 +210,9 @@ class PalletVideoApp:
             shutil.move(str(source_for_upload), str(pending_path))
 
         self.upload_worker.wake()
+
+
+def _seconds_text(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.1f}s"

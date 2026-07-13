@@ -17,7 +17,7 @@ autofocus_range = "full"
 autofocus_speed = "fast"
 
 [barcode]
-scan_every_n_frames = 1
+scan_every_n_frames = 2
 min_chars = 4
 max_chars = 64
 # Tilpas til jeres ordrenumre. Eksemplet tillader bogstaver, tal og almindelige
@@ -25,11 +25,10 @@ max_chars = 64
 accepted_pattern = "^[A-Za-z0-9_.()$/+%-]+$"
 # x, y, width, height for barcode-scan-zonen. Start bredt, og snævr ind hvis kameraet ser for meget støj.
 roi = [0.0, 0.0, 1.0, 1.0]
-# Prøv mange orienteringer, så labelen ikke skal holdes perfekt vandret.
+# Hurtig basisprofil: normale retninger plus moderate skæve vinkler.
 rotation_degrees = [
   0, 90, 180, 270,
-  15, 345, 30, 330, 45, 315, 60, 300, 75, 285,
-  105, 255, 120, 240, 135, 225, 150, 210, 165, 195,
+  15, 345, 30, 330,
 ]
 # Begræns dekoderen til de relevante barcode-typer. DataBar er udeladt, fordi den gav støjende falske fund i testbilleder.
 formats = [
@@ -37,10 +36,9 @@ formats = [
   "EAN13", "EAN8", "UPCA", "UPCE",
   "QRCode", "DataMatrix", "PDF417",
 ]
-# Opskalering hjælper små/fjerne labels, men koster CPU.
-scan_scales = [1.0, 1.5]
-# Ekstra gråskala/kontrast/threshold-forsøg hjælper ved svagt lys eller lav kontrast.
-preprocess = true
+# Opskalering og preprocessing kan hjælpe svære labels, men koster meget CPU.
+scan_scales = [1.0]
+preprocess = false
 # Start optagelsen når samme gyldige kode er læst på to frames.
 confirm_read_count = 2
 confirm_window_seconds = 1.5

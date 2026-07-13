@@ -62,7 +62,7 @@ jpeg_quality = 70
             self.assertEqual(config.camera.autofocus_mode, "continuous")
             self.assertEqual(config.camera.autofocus_range, "full")
             self.assertEqual(config.camera.autofocus_speed, "fast")
-            self.assertEqual(config.barcode.scan_every_n_frames, 1)
+            self.assertEqual(config.barcode.scan_every_n_frames, 2)
             self.assertEqual(config.barcode.confirm_read_count, 2)
             self.assertTrue(config.barcode.validate_gs1_ai01_check_digit)
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))

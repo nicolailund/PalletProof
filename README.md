@@ -88,10 +88,10 @@ opencv_device = 0
 Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at være perfekt vandret:
 
 - `barcode.roi` begrænser scanningen til den del af billedet, hvor lageret viser labelen.
-- `barcode.rotation_degrees` prøver mange orienteringer i 15-graders trin, så labelen kan holdes skævt.
+- `barcode.rotation_degrees` prøver normale retninger plus moderate skæve vinkler. Flere vinkler kan hjælpe, men koster meget CPU.
 - `barcode.formats` begrænser dekoderen til forventede barcode-typer. DataBar er som standard udeladt, fordi den gav falske fund på støj/reflekser i testbilleder.
-- `barcode.scan_scales` kan opskalere billedet, hvis labelen er lille eller langt fra kameraet.
-- `barcode.preprocess` prøver ekstra gråskala-, kontrast- og threshold-varianter.
+- `barcode.scan_scales` kan opskalere billedet, hvis labelen er lille eller langt fra kameraet. Start med `[1.0]` for lav CPU.
+- `barcode.preprocess` prøver ekstra gråskala-, kontrast- og threshold-varianter. Brug kun dette, hvis de faktiske labels ikke kan læses uden.
 - `barcode.confirm_read_count = 2` kræver samme gyldige kode på to frames. Ved 30 fps føles det stadig øjeblikkeligt, men dæmper enkelt-frame fejllæsninger.
 - `barcode.duplicate_suppress_seconds` forhindrer, at samme synlige label starter en ny optagelse straks efter stop.
 - `barcode.ambient_suppress_seconds` ignorerer koder, der allerede er synlige lige efter service-start eller lige efter en optagelse.
@@ -102,6 +102,8 @@ Barcode-scanningen kører på kameraets preview-stream. `camera.preview_width` o
 Standardfilteret tillader også Code 39-specialtegn som `$`, `/`, `+` og `%` samt GS1-lignende parentesformat, fx `(01)08584012360472`. AI(01)-værdier valideres som GTIN-14, når `barcode.validate_gs1_ai01_check_digit = true`. Tegn, der ikke er sikre i filnavne, bliver saniteret væk i videofilnavnet, så filen ender med et sikkert navn som `01_08584012360472_YYYYMMDD_HHMMSS.mp4`.
 
 Til drift bør `barcode.roi`, lys, afstand og fokus testes med de faktiske lagerlabels. Den aggressive scanning kan også fange produktstregkoder på pallen, hvis de er synlige. Hvis CPU-belastningen bliver for høj, er første justering at snævre `barcode.roi` ind og reducere `barcode.scan_scales` eller `barcode.rotation_degrees`.
+
+Mens servicen venter på barcode, skriver den periodisk `BARCODE_SCAN_STATUS` i loggen. Den linje viser om kamera-loopet lever, hvor mange scan-jobs der er sendt/færdige, og hvor længe den aktuelle scan har kørt.
 
 ## Midlertidig scan-feedback med Piens ACT-LED
 

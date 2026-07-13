@@ -25,7 +25,7 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class BarcodeConfig:
-    scan_every_n_frames: int = 1
+    scan_every_n_frames: int = 2
     min_chars: int = 4
     max_chars: int = 64
     accepted_pattern: str = r"^[A-Za-z0-9_.()$/+%-]+$"
@@ -39,22 +39,6 @@ class BarcodeConfig:
         345,
         30,
         330,
-        45,
-        315,
-        60,
-        300,
-        75,
-        285,
-        105,
-        255,
-        120,
-        240,
-        135,
-        225,
-        150,
-        210,
-        165,
-        195,
     )
     formats: tuple[str, ...] = (
         "Code128",
@@ -70,8 +54,8 @@ class BarcodeConfig:
         "DataMatrix",
         "PDF417",
     )
-    scan_scales: tuple[float, ...] = (1.0, 1.5)
-    preprocess: bool = True
+    scan_scales: tuple[float, ...] = (1.0,)
+    preprocess: bool = False
     confirm_read_count: int = 2
     confirm_window_seconds: float = 1.5
     duplicate_suppress_seconds: float = 8.0

@@ -1,14 +1,29 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 import logging
 import threading
+import time
 from typing import Any
 
 from .barcode import BarcodeReader
 from .config import BarcodeConfig
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BarcodeScanStats:
+    submitted_count: int
+    completed_count: int
+    latest_sequence: int
+    scanned_sequence: int
+    busy: bool
+    current_elapsed_seconds: float | None
+    last_duration_seconds: float | None
+    last_result: str | None
+    queued_results: int
 
 
 class BarcodeScanWorker:
@@ -22,6 +37,11 @@ class BarcodeScanWorker:
         self._latest_sequence = 0
         self._scanned_sequence = 0
         self._results: deque[str] = deque()
+        self._submitted_count = 0
+        self._completed_count = 0
+        self._scan_started_at: float | None = None
+        self._last_duration_seconds: float | None = None
+        self._last_result: str | None = None
 
     def start(self) -> None:
         with self._condition:
@@ -40,6 +60,7 @@ class BarcodeScanWorker:
             if not self._running:
                 return
             self._latest_sequence += 1
+            self._submitted_count += 1
             self._latest_frame = frame
             self._condition.notify()
 
@@ -52,6 +73,24 @@ class BarcodeScanWorker:
     def start_ambient_suppression(self) -> None:
         with self._reader_lock:
             self.reader.start_ambient_suppression()
+
+    def stats(self) -> BarcodeScanStats:
+        now = time.monotonic()
+        with self._condition:
+            current_elapsed = (
+                None if self._scan_started_at is None else now - self._scan_started_at
+            )
+            return BarcodeScanStats(
+                submitted_count=self._submitted_count,
+                completed_count=self._completed_count,
+                latest_sequence=self._latest_sequence,
+                scanned_sequence=self._scanned_sequence,
+                busy=self._scan_started_at is not None,
+                current_elapsed_seconds=current_elapsed,
+                last_duration_seconds=self._last_duration_seconds,
+                last_result=self._last_result,
+                queued_results=len(self._results),
+            )
 
     def stop(self) -> None:
         with self._condition:
@@ -80,14 +119,23 @@ class BarcodeScanWorker:
                     self._scanned_sequence = max(self._scanned_sequence, sequence)
                 continue
 
+            started_at = time.monotonic()
+            with self._condition:
+                self._scan_started_at = started_at
+
             try:
                 with self._reader_lock:
                     value = self.reader.read(frame)
             except Exception:
                 LOGGER.exception("Barcode scan failed")
                 value = None
+            duration = time.monotonic() - started_at
 
             with self._condition:
                 self._scanned_sequence = max(self._scanned_sequence, sequence)
+                self._completed_count += 1
+                self._scan_started_at = None
+                self._last_duration_seconds = duration
+                self._last_result = value
                 if value is not None:
                     self._results.append(value)
