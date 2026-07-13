@@ -52,6 +52,18 @@ class BarcodeReaderTest(unittest.TestCase):
 
         self.assertEqual(reader.read(object()), "(01)08584012360472")
 
+    def test_accepts_common_code39_special_characters(self) -> None:
+        reader = BarcodeReader(
+            BarcodeConfig(
+                confirm_read_count=1,
+                duplicate_suppress_seconds=0.0,
+                ambient_suppress_seconds=0.0,
+            )
+        )
+        reader._read_values = lambda frame: ["A$401B"]  # type: ignore[method-assign]
+
+        self.assertEqual(reader.read(object()), "A$401B")
+
     def test_rejects_invalid_gs1_ai01_check_digit(self) -> None:
         reader = BarcodeReader(
             BarcodeConfig(

@@ -26,7 +26,7 @@ class BarcodeConfig:
     scan_every_n_frames: int = 1
     min_chars: int = 4
     max_chars: int = 64
-    accepted_pattern: str = r"^[A-Za-z0-9_.()-]+$"
+    accepted_pattern: str = r"^[A-Za-z0-9_.()$/+%-]+$"
     roi: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)
     rotation_degrees: tuple[int, ...] = (
         0,

@@ -17,9 +17,9 @@ autofocus_mode = "continuous"
 scan_every_n_frames = 1
 min_chars = 4
 max_chars = 64
-# Tilpas til jeres ordrenumre. Eksemplet tillader bogstaver, tal, punktum,
-# underscore, bindestreg og GS1-lignende parenteser som (01)12345678901234.
-accepted_pattern = "^[A-Za-z0-9_.()-]+$"
+# Tilpas til jeres ordrenumre. Eksemplet tillader bogstaver, tal og almindelige
+# Code 39/GS1-tegn som bindestreg, $, /, +, %, punktum, underscore og parenteser.
+accepted_pattern = "^[A-Za-z0-9_.()$/+%-]+$"
 # x, y, width, height for barcode-scan-zonen. Start bredt, og snævr ind hvis kameraet ser for meget støj.
 roi = [0.0, 0.0, 1.0, 1.0]
 # Prøv mange orienteringer, så labelen ikke skal holdes perfekt vandret.
