@@ -23,15 +23,40 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class BarcodeConfig:
-    scan_every_n_frames: int = 3
+    scan_every_n_frames: int = 1
     min_chars: int = 4
     max_chars: int = 64
     accepted_pattern: str = r"^[A-Za-z0-9_.()-]+$"
     roi: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)
-    rotation_degrees: tuple[int, ...] = (0, 90, 180, 270)
+    rotation_degrees: tuple[int, ...] = (
+        0,
+        90,
+        180,
+        270,
+        15,
+        345,
+        30,
+        330,
+        45,
+        315,
+        60,
+        300,
+        75,
+        285,
+        105,
+        255,
+        120,
+        240,
+        135,
+        225,
+        150,
+        210,
+        165,
+        195,
+    )
     scan_scales: tuple[float, ...] = (1.0, 1.5)
     preprocess: bool = True
-    confirm_read_count: int = 2
+    confirm_read_count: int = 1
     confirm_window_seconds: float = 1.5
     duplicate_suppress_seconds: float = 8.0
 

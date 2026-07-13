@@ -88,17 +88,17 @@ opencv_device = 0
 Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at være perfekt vandret:
 
 - `barcode.roi` begrænser scanningen til den del af billedet, hvor lageret viser labelen.
-- `barcode.rotation_degrees` prøver flere orienteringer, fx 0, 90, 180 og 270 grader.
+- `barcode.rotation_degrees` prøver mange orienteringer i 15-graders trin, så labelen kan holdes skævt.
 - `barcode.scan_scales` kan opskalere billedet, hvis labelen er lille eller langt fra kameraet.
 - `barcode.preprocess` prøver ekstra gråskala-, kontrast- og threshold-varianter.
-- `barcode.confirm_read_count` kræver samme læsning flere gange, før optagelsen starter.
+- `barcode.confirm_read_count = 1` starter ved første gyldige læsning. Sæt den til 2, hvis der kommer falske læsninger.
 - `barcode.duplicate_suppress_seconds` forhindrer, at samme synlige label starter en ny optagelse straks efter stop.
 
 Barcode-scanningen kører på kameraets preview-stream. `camera.preview_width` og `camera.preview_height` bør derfor ikke sættes for lavt; `1280x720` er et bedre udgangspunkt end `640x360` til håndholdte labels.
 
 Standardfilteret tillader også GS1-lignende parentesformat, fx `(01)08584012360472`. Parenteser bliver saniteret væk i videofilnavnet, så filen ender med et sikkert navn som `01_08584012360472_YYYYMMDD_HHMMSS.mp4`.
 
-Til drift bør `barcode.roi`, lys, afstand og fokus testes med de faktiske lagerlabels. Hvis CPU-belastningen bliver for høj, er første justering at snævre `barcode.roi` ind og reducere `barcode.scan_scales` eller `barcode.rotation_degrees`.
+Til drift bør `barcode.roi`, lys, afstand og fokus testes med de faktiske lagerlabels. Den aggressive scanning kan også fange produktstregkoder på pallen, hvis de er synlige. Hvis CPU-belastningen bliver for høj, er første justering at snævre `barcode.roi` ind og reducere `barcode.scan_scales` eller `barcode.rotation_degrees`.
 
 ## Midlertidig scan-feedback med Piens ACT-LED
 

@@ -32,25 +32,20 @@ class BarcodeReader:
 
     def read(self, frame: Any) -> str | None:
         now = time.monotonic()
-        values: list[str] = []
         seen_values: set[str] = set()
         for raw_value in self._read_values(frame):
             value = self._normalize(raw_value)
-            if value and value not in seen_values:
-                values.append(value)
-                seen_values.add(value)
-
-        for value in values:
+            if not value or value in seen_values:
+                continue
+            seen_values.add(value)
             accepted = self._confirm_read(value, now)
             if accepted is not None:
                 return accepted
         return None
 
-    def _read_values(self, frame: Any) -> list[str]:
-        values: list[str] = []
+    def _read_values(self, frame: Any) -> Iterable[str]:
         for candidate in self._candidate_images(frame):
-            values.extend(self._decode(candidate))
-        return values
+            yield from self._decode(candidate)
 
     def _decode(self, frame: Any) -> list[str]:
         if self._zxingcpp is not None:
@@ -179,7 +174,19 @@ def _rotate(frame: Any, degrees: int, cv2: Any) -> Any:
     height, width = frame.shape[:2]
     center = (width / 2, height / 2)
     matrix = cv2.getRotationMatrix2D(center, normalized, 1.0)
-    return cv2.warpAffine(frame, matrix, (width, height), flags=cv2.INTER_CUBIC)
+    cos = abs(matrix[0, 0])
+    sin = abs(matrix[0, 1])
+    target_width = int((height * sin) + (width * cos))
+    target_height = int((height * cos) + (width * sin))
+    matrix[0, 2] += (target_width / 2) - center[0]
+    matrix[1, 2] += (target_height / 2) - center[1]
+    return cv2.warpAffine(
+        frame,
+        matrix,
+        (target_width, target_height),
+        flags=cv2.INTER_CUBIC,
+        borderMode=cv2.BORDER_REPLICATE,
+    )
 
 
 def _preprocessed(frame: Any, cv2: Any) -> Iterable[Any]:

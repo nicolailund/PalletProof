@@ -3,7 +3,16 @@ from __future__ import annotations
 import unittest
 
 from pallet_video_recorder.barcode import BarcodeReader
+from pallet_video_recorder.barcode import _rotate
 from pallet_video_recorder.config import BarcodeConfig
+
+np = None
+cv2 = None
+try:
+    import cv2
+    import numpy as np
+except Exception:
+    pass
 
 
 class BarcodeReaderTest(unittest.TestCase):
@@ -48,6 +57,15 @@ class BarcodeReaderTest(unittest.TestCase):
         reader._read_values = lambda frame: ["ORD-123", "ORD-123"]  # type: ignore[method-assign]
 
         self.assertIsNone(reader.read(object()))
+
+    @unittest.skipIf(np is None or cv2 is None, "numpy/opencv are not installed")
+    def test_arbitrary_rotation_expands_canvas(self) -> None:
+        frame = np.zeros((100, 200, 3), dtype=np.uint8)
+
+        rotated = _rotate(frame, 45, cv2)
+
+        self.assertGreater(rotated.shape[0], frame.shape[0])
+        self.assertGreater(rotated.shape[1], frame.shape[1])
 
 
 if __name__ == "__main__":
