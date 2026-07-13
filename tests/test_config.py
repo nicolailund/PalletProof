@@ -16,6 +16,11 @@ class ConfigTest(unittest.TestCase):
 [recording]
 root_dir = "data"
 
+[camera]
+preview_width = 1280
+preview_height = 720
+autofocus_mode = "continuous"
+
 [motion]
 roi = [0.1, 0.2, 0.3, 0.4]
 
@@ -41,6 +46,9 @@ restore_trigger = "mmc0"
 
             config = load_config(config_path)
 
+            self.assertEqual(config.camera.preview_width, 1280)
+            self.assertEqual(config.camera.preview_height, 720)
+            self.assertEqual(config.camera.autofocus_mode, "continuous")
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))
             self.assertEqual(config.barcode.roi, (0.2, 0.1, 0.5, 0.7))
             self.assertEqual(config.barcode.rotation_degrees, (0, 90))

@@ -12,12 +12,13 @@ class CameraConfig:
     backend: str = "auto"
     width: int = 1920
     height: int = 1080
-    preview_width: int = 640
-    preview_height: int = 360
+    preview_width: int = 1280
+    preview_height: int = 720
     fps: int = 30
     bitrate: int = 12_000_000
     opencv_device: int = 0
     opencv_fourcc: str = "MJPG"
+    autofocus_mode: str = "continuous"
 
 
 @dataclass(frozen=True)

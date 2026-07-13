@@ -95,6 +95,7 @@ class PiCamera2FrameSource:
             controls={"FrameRate": self.config.fps},
         )
         self.picam2.configure(video_config)
+        self._apply_autofocus()
         self.picam2.start()
         time.sleep(1.0)
         LOGGER.info("Started Picamera2 at %sx%s", self.config.width, self.config.height)
@@ -135,6 +136,34 @@ class PiCamera2FrameSource:
         if len(frame.shape) == 2 and frame.shape[0] == expected_yuv_height:
             return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
         return frame
+
+    def _apply_autofocus(self) -> None:
+        mode = self.config.autofocus_mode.lower()
+        if mode in {"", "default", "off"}:
+            return
+
+        try:
+            from libcamera import controls
+        except Exception as exc:  # pragma: no cover - Pi-only dependency
+            LOGGER.warning("Could not import libcamera autofocus controls: %s", exc)
+            return
+
+        modes = {
+            "manual": controls.AfModeEnum.Manual,
+            "auto": controls.AfModeEnum.Auto,
+            "continuous": controls.AfModeEnum.Continuous,
+        }
+        af_mode = modes.get(mode)
+        if af_mode is None:
+            LOGGER.warning("Unknown autofocus mode %r; leaving camera default", self.config.autofocus_mode)
+            return
+
+        assert self.picam2 is not None
+        try:
+            self.picam2.set_controls({"AfMode": af_mode})
+            LOGGER.info("Set Picamera2 autofocus mode to %s", mode)
+        except Exception as exc:  # pragma: no cover - hardware dependent
+            LOGGER.warning("Could not set Picamera2 autofocus mode to %s: %s", mode, exc)
 
 
 class OpenCvFrameSource:
