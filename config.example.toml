@@ -55,7 +55,7 @@ validate_gs1_ai01_check_digit = true
 roi = [0.08, 0.08, 0.84, 0.84]
 threshold = 0.018
 still_seconds = 4.0
-minimum_recording_seconds = 8.0
+minimum_recording_seconds = 30.0
 maximum_recording_seconds = 180.0
 require_motion_before_stop = true
 

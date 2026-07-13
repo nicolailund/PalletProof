@@ -66,6 +66,7 @@ jpeg_quality = 70
             self.assertEqual(config.barcode.confirm_read_count, 2)
             self.assertTrue(config.barcode.validate_gs1_ai01_check_digit)
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))
+            self.assertEqual(config.motion.minimum_recording_seconds, 30.0)
             self.assertEqual(config.barcode.roi, (0.2, 0.1, 0.5, 0.7))
             self.assertEqual(config.barcode.rotation_degrees, (0, 90))
             self.assertEqual(config.barcode.formats, ("Code128", "Code39"))

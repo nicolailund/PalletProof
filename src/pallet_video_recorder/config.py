@@ -69,7 +69,7 @@ class MotionConfig:
     roi: tuple[float, float, float, float] = (0.08, 0.08, 0.84, 0.84)
     threshold: float = 0.018
     still_seconds: float = 4.0
-    minimum_recording_seconds: float = 8.0
+    minimum_recording_seconds: float = 30.0
     maximum_recording_seconds: float = 180.0
     require_motion_before_stop: bool = True
 
