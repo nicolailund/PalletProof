@@ -6,13 +6,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .barcode import BarcodeReader
 from .camera import FrameSource, build_frame_source
 from .config import AppConfig
 from .filenames import build_video_name
 from .motion import MotionDetector
 from .privacy import PrivacyProcessor
 from .preview import CameraPreviewServer
+from .scanner import BarcodeScanWorker
 from .sound import Beeper
 from .status_light import StatusLight
 from .uploader import UploadWorker
@@ -35,7 +35,7 @@ class PalletVideoApp:
         self.running = False
         self.frame_source: FrameSource | None = None
         self.upload_worker = UploadWorker(config.upload, config.paths)
-        self.barcode_reader = BarcodeReader(config.barcode)
+        self.barcode_scanner = BarcodeScanWorker(config.barcode)
         self.motion_detector = MotionDetector(config.motion)
         self.privacy_processor = PrivacyProcessor(config.privacy)
         self.preview_server = CameraPreviewServer(config.preview)
@@ -47,6 +47,7 @@ class PalletVideoApp:
         self.running = True
         self.upload_worker.start()
         self.preview_server.start()
+        self.barcode_scanner.start()
 
         self.frame_source = build_frame_source(self.config.camera)
         self.frame_source.start()
@@ -89,7 +90,7 @@ class PalletVideoApp:
                 self._finish_recording(active)
                 active = None
                 self.motion_detector.reset()
-                self.barcode_reader.start_ambient_suppression()
+                self.barcode_scanner.start_ambient_suppression()
                 LOGGER.info("Ready for next barcode scan")
                 self.status_light.idle()
 
@@ -105,23 +106,25 @@ class PalletVideoApp:
     def _close(self) -> None:
         self.upload_worker.stop()
         self.preview_server.stop()
+        self.barcode_scanner.stop()
         if self.frame_source is not None:
             self.frame_source.close()
         self.beeper.close()
         self.status_light.close()
 
     def _read_barcode(self, frame: object, frame_number: int) -> str | None:
+        barcode = self.barcode_scanner.poll()
+        if barcode:
+            LOGGER.info("Read barcode/order number: %s", barcode)
+            self.beeper.beep()
+            self.status_light.scanned()
+            return barcode
+
         if frame_number % self.config.barcode.scan_every_n_frames != 0:
             return None
 
-        barcode = self.barcode_reader.read(frame)
-        if not barcode:
-            return None
-
-        LOGGER.info("Read barcode/order number: %s", barcode)
-        self.beeper.beep()
-        self.status_light.scanned()
-        return barcode
+        self.barcode_scanner.submit(frame)
+        return None
 
     def _start_recording(self, order_number: str) -> ActiveRecording:
         final_name = build_video_name(order_number, self.config.recording.file_extension)

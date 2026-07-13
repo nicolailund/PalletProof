@@ -192,6 +192,7 @@ class CameraPreviewServer:
                         self.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode("ascii"))
                         self.wfile.write(jpeg)
                         self.wfile.write(b"\r\n")
+                        self.wfile.flush()
                     except (BrokenPipeError, ConnectionError, OSError):
                         return
 
