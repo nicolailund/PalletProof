@@ -94,6 +94,8 @@ Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at v
 - `barcode.confirm_read_count` kræver samme læsning flere gange, før optagelsen starter.
 - `barcode.duplicate_suppress_seconds` forhindrer, at samme synlige label starter en ny optagelse straks efter stop.
 
+Standardfilteret tillader også GS1-lignende parentesformat, fx `(01)08584012360472`. Parenteser bliver saniteret væk i videofilnavnet, så filen ender med et sikkert navn som `01_08584012360472_YYYYMMDD_HHMMSS.mp4`.
+
 Til drift bør `barcode.roi`, lys, afstand og fokus testes med de faktiske lagerlabels. Hvis CPU-belastningen bliver for høj, er første justering at snævre `barcode.roi` ind og reducere `barcode.scan_scales` eller `barcode.rotation_degrees`.
 
 ## Midlertidig scan-feedback med Piens ACT-LED

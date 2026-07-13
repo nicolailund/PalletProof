@@ -16,6 +16,14 @@ class BarcodeReaderTest(unittest.TestCase):
         self.assertIsNone(reader.read(object()))
         self.assertEqual(reader.read(object()), "ORD-123")
 
+    def test_accepts_gs1_style_parenthesized_values(self) -> None:
+        reader = BarcodeReader(
+            BarcodeConfig(confirm_read_count=1, duplicate_suppress_seconds=0.0)
+        )
+        reader._read_values = lambda frame: ["(01)08584012360472"]  # type: ignore[method-assign]
+
+        self.assertEqual(reader.read(object()), "(01)08584012360472")
+
     def test_suppresses_recent_duplicate_scan(self) -> None:
         reader = BarcodeReader(
             BarcodeConfig(confirm_read_count=1, duplicate_suppress_seconds=60.0)
