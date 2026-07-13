@@ -98,6 +98,15 @@ scan_flash_seconds = 0.4
 sysfs_led_name = "ACT"
 restore_trigger = "mmc0"
 
+[preview]
+# Web-preview til fejlfinding. Slå til lokalt på Pi'en og åbn http://PI-IP:8080.
+enabled = false
+host = "0.0.0.0"
+port = 8080
+max_fps = 5.0
+width = 960
+jpeg_quality = 70
+
 [upload]
 enabled = true
 protocol = "sftp" # "sftp", "ftp" eller "ftps"

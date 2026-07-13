@@ -152,6 +152,22 @@ Brug én modstand pr. farvekanal. Til en panelmonteret 12V/24V industrilampe må
 
 Hvis industrilampen har en separat gul indgang i stedet for at blande rød og grøn, sæt `yellow_gpio_pin` og brug samme driverprincip for den tredje kanal.
 
+## Live kamera-preview
+
+Til fejlfinding kan appen vise samme preview-feed, som barcode-scanneren bruger:
+
+```toml
+[preview]
+enabled = true
+host = "0.0.0.0"
+port = 8080
+max_fps = 5.0
+width = 960
+jpeg_quality = 70
+```
+
+Åbn derefter `http://PI-IP:8080` fra en browser på samme netværk, fx `http://192.168.1.178:8080`. Previewen er ikke passwordbeskyttet og bør kun bruges på et internt netværk.
+
 ## Systemd service
 
 Tilpas `systemd/pallet-video.service`, så `WorkingDirectory`, `ExecStart` og bruger passer til Pi'en.

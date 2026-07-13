@@ -43,6 +43,14 @@ yellow_gpio_pin = 22
 scan_flash_seconds = 0.2
 sysfs_led_name = "ACT"
 restore_trigger = "mmc0"
+
+[preview]
+enabled = true
+host = "0.0.0.0"
+port = 8080
+max_fps = 5.0
+width = 960
+jpeg_quality = 70
 """,
                 encoding="utf-8",
             )
@@ -70,6 +78,12 @@ restore_trigger = "mmc0"
             self.assertEqual(config.status_light.backend, "act_led")
             self.assertEqual(config.status_light.sysfs_led_name, "ACT")
             self.assertEqual(config.status_light.restore_trigger, "mmc0")
+            self.assertTrue(config.preview.enabled)
+            self.assertEqual(config.preview.host, "0.0.0.0")
+            self.assertEqual(config.preview.port, 8080)
+            self.assertEqual(config.preview.max_fps, 5.0)
+            self.assertEqual(config.preview.width, 960)
+            self.assertEqual(config.preview.jpeg_quality, 70)
 
 
 if __name__ == "__main__":

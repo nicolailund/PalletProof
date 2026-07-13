@@ -125,6 +125,16 @@ class StatusLightConfig:
 
 
 @dataclass(frozen=True)
+class PreviewConfig:
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8080
+    max_fps: float = 5.0
+    width: int = 960
+    jpeg_quality: int = 70
+
+
+@dataclass(frozen=True)
 class UploadConfig:
     enabled: bool = True
     protocol: str = "sftp"
@@ -172,6 +182,7 @@ class AppConfig:
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     sound: SoundConfig = field(default_factory=SoundConfig)
     status_light: StatusLightConfig = field(default_factory=StatusLightConfig)
+    preview: PreviewConfig = field(default_factory=PreviewConfig)
     upload: UploadConfig = field(default_factory=UploadConfig)
     paths: Paths = field(default_factory=lambda: Paths.from_root(Path("data")))
 
@@ -191,6 +202,7 @@ def load_config(path: Path) -> AppConfig:
         privacy=_build_privacy(raw.get("privacy", {})),
         sound=_dataclass_from_dict(SoundConfig, raw.get("sound", {})),
         status_light=_build_status_light(raw.get("status_light", {})),
+        preview=_build_preview(raw.get("preview", {})),
         upload=_dataclass_from_dict(UploadConfig, raw.get("upload", {})),
         paths=paths,
     )
@@ -259,6 +271,19 @@ def _build_status_light(raw: dict[str, Any]) -> StatusLightConfig:
         raise ValueError("status_light GPIO pins must be different")
     _validate_sysfs_token(config.sysfs_led_name, "status_light.sysfs_led_name")
     _validate_sysfs_token(config.restore_trigger, "status_light.restore_trigger")
+    return config
+
+
+def _build_preview(raw: dict[str, Any]) -> PreviewConfig:
+    config = _dataclass_from_dict(PreviewConfig, raw)
+    if not (1 <= config.port <= 65535):
+        raise ValueError("preview.port must be between 1 and 65535")
+    if config.max_fps <= 0:
+        raise ValueError("preview.max_fps must be positive")
+    if config.width < 0:
+        raise ValueError("preview.width cannot be negative")
+    if not (1 <= config.jpeg_quality <= 100):
+        raise ValueError("preview.jpeg_quality must be between 1 and 100")
     return config
 
 

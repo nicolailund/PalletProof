@@ -12,6 +12,7 @@ from .config import AppConfig
 from .filenames import build_video_name
 from .motion import MotionDetector
 from .privacy import PrivacyProcessor
+from .preview import CameraPreviewServer
 from .sound import Beeper
 from .status_light import StatusLight
 from .uploader import UploadWorker
@@ -37,6 +38,7 @@ class PalletVideoApp:
         self.barcode_reader = BarcodeReader(config.barcode)
         self.motion_detector = MotionDetector(config.motion)
         self.privacy_processor = PrivacyProcessor(config.privacy)
+        self.preview_server = CameraPreviewServer(config.preview)
         self.beeper = Beeper(config.sound)
         self.status_light = StatusLight(config.status_light)
 
@@ -44,6 +46,7 @@ class PalletVideoApp:
         self.config.paths.ensure()
         self.running = True
         self.upload_worker.start()
+        self.preview_server.start()
 
         self.frame_source = build_frame_source(self.config.camera)
         self.frame_source.start()
@@ -61,6 +64,7 @@ class PalletVideoApp:
 
             frame_number += 1
             self.frame_source.note_frame(frame)
+            self.preview_server.update_frame(frame)
 
             if active is None:
                 order_number = self._read_barcode(frame, frame_number)
@@ -100,6 +104,7 @@ class PalletVideoApp:
 
     def _close(self) -> None:
         self.upload_worker.stop()
+        self.preview_server.stop()
         if self.frame_source is not None:
             self.frame_source.close()
         self.beeper.close()

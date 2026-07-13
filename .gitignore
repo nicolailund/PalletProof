@@ -5,3 +5,4 @@ data/
 config.toml
 .pytest_cache/
 .run/
+debug/
