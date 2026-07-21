@@ -29,6 +29,13 @@ device = "auto"
 baudrate = 115200
 reconnect_seconds = 5.0
 line_idle_seconds = 0.25
+# Hvis SEN-18088 staar i trigger mode, kan Pi'en pulse TRIG-pinnen automatisk.
+# Standard er GPIO23, fysisk pin 16. Forbind kun scannerens TRIG og GND til Pi'en.
+trigger_gpio_enabled = false
+trigger_gpio_pin = 23
+trigger_interval_seconds = 2.0
+trigger_pulse_seconds = 0.15
+trigger_active_high = false
 duplicate_suppress_seconds = 2.0
 min_chars = 4
 max_chars = 128

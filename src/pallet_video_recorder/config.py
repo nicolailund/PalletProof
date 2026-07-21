@@ -73,6 +73,11 @@ class HardwareScannerConfig:
     baudrate: int = 115200
     reconnect_seconds: float = 5.0
     line_idle_seconds: float = 0.25
+    trigger_gpio_enabled: bool = False
+    trigger_gpio_pin: int = 23
+    trigger_interval_seconds: float = 2.0
+    trigger_pulse_seconds: float = 0.15
+    trigger_active_high: bool = False
     duplicate_suppress_seconds: float = 2.0
     min_chars: int = 4
     max_chars: int = 128
@@ -258,6 +263,10 @@ def _build_hardware_scanner(raw: dict[str, Any]) -> HardwareScannerConfig:
         raise ValueError("hardware_scanner.reconnect_seconds must be positive")
     if config.line_idle_seconds < 0:
         raise ValueError("hardware_scanner.line_idle_seconds cannot be negative")
+    if config.trigger_interval_seconds <= 0:
+        raise ValueError("hardware_scanner.trigger_interval_seconds must be positive")
+    if config.trigger_pulse_seconds < 0:
+        raise ValueError("hardware_scanner.trigger_pulse_seconds cannot be negative")
     if config.duplicate_suppress_seconds < 0:
         raise ValueError("hardware_scanner.duplicate_suppress_seconds cannot be negative")
     if config.min_chars < 1 or config.max_chars < config.min_chars:

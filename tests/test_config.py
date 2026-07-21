@@ -40,6 +40,11 @@ device = "/dev/serial/by-id/usb-test-scanner"
 baudrate = 9600
 reconnect_seconds = 3.0
 line_idle_seconds = 0.4
+trigger_gpio_enabled = true
+trigger_gpio_pin = 23
+trigger_interval_seconds = 2.0
+trigger_pulse_seconds = 0.15
+trigger_active_high = false
 duplicate_suppress_seconds = 1.0
 min_chars = 5
 max_chars = 80
@@ -86,6 +91,11 @@ jpeg_quality = 70
             self.assertEqual(config.hardware_scanner.baudrate, 9600)
             self.assertEqual(config.hardware_scanner.reconnect_seconds, 3.0)
             self.assertEqual(config.hardware_scanner.line_idle_seconds, 0.4)
+            self.assertTrue(config.hardware_scanner.trigger_gpio_enabled)
+            self.assertEqual(config.hardware_scanner.trigger_gpio_pin, 23)
+            self.assertEqual(config.hardware_scanner.trigger_interval_seconds, 2.0)
+            self.assertEqual(config.hardware_scanner.trigger_pulse_seconds, 0.15)
+            self.assertFalse(config.hardware_scanner.trigger_active_high)
             self.assertEqual(config.hardware_scanner.duplicate_suppress_seconds, 1.0)
             self.assertEqual(config.hardware_scanner.min_chars, 5)
             self.assertEqual(config.hardware_scanner.max_chars, 80)

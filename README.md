@@ -93,7 +93,7 @@ Anbefalet tilslutning er USB:
 3. Find den port Pi'en ser:
 
 ```bash
-ls -l /dev/serial/by-id/ /dev/ttyACM* /dev/ttyUSB* 2>/dev/null
+ls -l /dev/input/by-id/*event-kbd /dev/serial/by-id/ /dev/ttyACM* /dev/ttyUSB* 2>/dev/null
 ```
 
 4. Sæt gerne den konkrete port i `config.toml`, især hvis Pi'en også har USB 4G/5G-modem:
@@ -117,6 +117,32 @@ sudo journalctl -u pallet-video -f
 Scan derefter en ordrestregkode. Loggen skal vise `Hardware scanner read barcode/order number` og derefter `Starting recording for order ...`. SEN-18088 har egen buzzer/status-LED ved korrekt decode; appens statuslys/ACT-LED blinker først, når Pi-servicen faktisk har modtaget og godkendt værdien.
 
 Hvis scanneren skriver ordrenummeret som tastaturinput i PuTTY/browseren, står den i USB keyboard/HID-tilstand. Appen kan læse den tilstand direkte via `/dev/input/...`, men servicebrugeren skal have adgang til input-enheden. På Pi'en løses det typisk ved at tilføje `palletcam` til gruppen `input` og genstarte servicen.
+
+### Automatisk trigger hver 2. sekund
+
+SEN-18088 står normalt i trigger mode: den scanner kun, når knappen trykkes, eller når `TRIG`-pinnen trækkes til GND. Pi'en kan derfor selv trykke elektronisk på triggeren, mens den venter på en ordre.
+
+USB-C-kablet bliver siddende og bruges stadig til data. Tilføj kun disse to ledninger:
+
+```text
+SEN-18088 GND  -> Pi GND, fysisk pin 14
+SEN-18088 TRIG -> Pi GPIO23, fysisk pin 16
+```
+
+Konfiguration:
+
+```toml
+[hardware_scanner]
+trigger_gpio_enabled = true
+trigger_gpio_pin = 23
+trigger_interval_seconds = 2.0
+trigger_pulse_seconds = 0.15
+trigger_active_high = false
+```
+
+`trigger_active_high = false` betyder, at Pi'en laver et kort aktivt lavt signal, svarende til at trigger-knappen trækker `TRIG` mod GND. Appen pulser kun triggeren, når den står klar til scan; under optagelse er pulsen slukket.
+
+Alternativet er at konfigurere scanneren til continuous/presentation mode med dens settings-barcodes. GPIO-trigger er dog mere kontrolleret i denne løsning, fordi vi selv bestemmer, at den kun scanner, når systemet faktisk venter på en ny ordre.
 
 ### UART som reserve
 

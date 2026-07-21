@@ -161,6 +161,9 @@ class HardwareScannerWorker:
         self._last_result: str | None = None
         self._last_accepted_value: str | None = None
         self._last_accepted_at = 0.0
+        self._trigger_event = threading.Event()
+        self._trigger_thread: threading.Thread | None = None
+        self._trigger_output = None
 
     def start(self) -> None:
         if not self.config.enabled:
@@ -177,12 +180,27 @@ class HardwareScannerWorker:
             daemon=True,
         )
         self._thread.start()
+        self._start_trigger_thread()
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._trigger_event.clear()
+        if self._trigger_thread is not None:
+            self._trigger_thread.join(timeout=5)
+            self._trigger_thread = None
+        if self._trigger_output is not None:
+            self._trigger_output.close()
+            self._trigger_output = None
         if self._thread is not None:
             self._thread.join(timeout=5)
             self._thread = None
+
+    def enable_triggering(self) -> None:
+        if self.config.trigger_gpio_enabled:
+            self._trigger_event.set()
+
+    def disable_triggering(self) -> None:
+        self._trigger_event.clear()
 
     def poll(self) -> str | None:
         with self._lock:
@@ -419,6 +437,52 @@ class HardwareScannerWorker:
         with self._lock:
             self._connected = connected
             self._device = device
+
+    def _start_trigger_thread(self) -> None:
+        if not self.config.trigger_gpio_enabled or self._trigger_thread is not None:
+            return
+
+        try:
+            from gpiozero import OutputDevice
+
+            self._trigger_output = OutputDevice(
+                self.config.trigger_gpio_pin,
+                active_high=self.config.trigger_active_high,
+                initial_value=False,
+            )
+        except Exception as exc:  # pragma: no cover - Pi-only dependency
+            LOGGER.warning("GPIO scanner trigger unavailable: %s", exc)
+            return
+
+        self._trigger_thread = threading.Thread(
+            target=self._run_trigger_loop,
+            name="hardware-barcode-trigger",
+            daemon=True,
+        )
+        self._trigger_thread.start()
+        LOGGER.info(
+            "Hardware barcode scanner GPIO trigger ready on GPIO%s every %.1fs",
+            self.config.trigger_gpio_pin,
+            self.config.trigger_interval_seconds,
+        )
+
+    def _run_trigger_loop(self) -> None:
+        while not self._stop_event.is_set():
+            if not self._trigger_event.wait(0.2):
+                continue
+
+            self._pulse_trigger()
+            self._stop_event.wait(self.config.trigger_interval_seconds)
+
+    def _pulse_trigger(self) -> None:
+        if self._trigger_output is None:
+            return
+        try:
+            self._trigger_output.on()
+            self._stop_event.wait(self.config.trigger_pulse_seconds)
+            self._trigger_output.off()
+        except Exception as exc:  # pragma: no cover - Pi-only dependency
+            LOGGER.warning("Could not pulse hardware barcode scanner trigger: %s", exc)
 
 
 def _device_sort_key(device: ScannerDevice | str) -> tuple[int, str]:

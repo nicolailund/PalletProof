@@ -64,6 +64,7 @@ class PalletVideoApp:
 
         LOGGER.info("Ready for barcode scan")
         self.status_light.idle()
+        self.hardware_scanner.enable_triggering()
         while self.running:
             frame = self.frame_source.capture_preview()
             if frame is None:
@@ -78,6 +79,7 @@ class PalletVideoApp:
                 self._log_scan_status(frame_number)
                 order_number = self._read_order_number(frame, frame_number)
                 if order_number:
+                    self.hardware_scanner.disable_triggering()
                     active = self._start_recording(order_number)
                     self.motion_detector.reset()
                 continue
@@ -102,6 +104,7 @@ class PalletVideoApp:
                     self.barcode_scanner.start_ambient_suppression()
                 LOGGER.info("Ready for next barcode scan")
                 self.status_light.idle()
+                self.hardware_scanner.enable_triggering()
 
         if active is not None:
             LOGGER.info("Application stopping with active recording; finalizing it")
@@ -115,6 +118,7 @@ class PalletVideoApp:
     def _close(self) -> None:
         self.upload_worker.stop()
         self.preview_server.stop()
+        self.hardware_scanner.disable_triggering()
         self.hardware_scanner.stop()
         self.barcode_scanner.stop()
         if self.frame_source is not None:
