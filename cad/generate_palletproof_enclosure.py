@@ -168,7 +168,10 @@ M2_CLEARANCE = 2.4
 M2_NUT_POCKET = 4.7
 M2_NUT_DEPTH = 2.2
 
-PI_X = 20.0
+# The scanner needs the short optical end facing the front, which makes the
+# SEN-18088 body deeper in the enclosure. The Pi is shifted right to keep both
+# boards flat in the bottom without overlapping.
+PI_X = 54.0
 PI_Y = 42.0
 PI_W = 85.0
 PI_D = 56.0
@@ -179,14 +182,14 @@ PI_HOLE_OFFSET = 3.5
 SCANNER_BOARD_X = 18.0
 SCANNER_BOARD_Y = WALL + 4.0
 SCANNER_BOARD_Z = 8.0
-SCANNER_BOARD_W = 44.45
-SCANNER_BOARD_D = 25.4
+SCANNER_BOARD_W = 25.4
+SCANNER_BOARD_D = 44.45
 SCANNER_MOUNT_HOLES = (
-    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Y + 2.54),
-    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Y + 22.86),
+    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Y + SCANNER_BOARD_D - 2.54),
+    (SCANNER_BOARD_X + 22.86, SCANNER_BOARD_Y + SCANNER_BOARD_D - 2.54),
 )
 
-SCANNER_WINDOW = Rect(14.0, 8.0, 64.0, 32.0)
+SCANNER_WINDOW = Rect(SCANNER_BOARD_X - 6.0, 8.0, SCANNER_BOARD_W + 12.0, 32.0)
 CAMERA_WINDOW = Rect(101.0, 15.0, 36.0, 36.0)
 USB_C_POWER_ENTRY = Rect(62.0, 12.0, 35.0, 18.0)
 SIDE_VENTS = tuple(Rect(18.0 + index * 8.0, 39.0, 4.0, 13.0) for index in range(8))
@@ -278,12 +281,13 @@ def add_pi_standoffs(mesh: Mesh) -> None:
 
 
 def add_scanner_cradle(mesh: Mesh) -> None:
-    # The SEN-18088 scanner looks forward along the plane of the breakout board.
-    # The board therefore lies flat, with its front edge just behind the front
-    # window. The scan module does not protrude beyond the PCB.
+    # The SEN-18088 scans out through the short optical end of the breakout.
+    # The PCB is rotated in the bottom so that short end faces the front
+    # window; the long body extends back into the enclosure.
     for cx, cy in SCANNER_MOUNT_HOLES:
         add_m2_standoff_z(mesh, cx, cy, BOTTOM, SCANNER_BOARD_Z - BOTTOM, outer=8.0)
 
+    side_stop_d = 20.0
     mesh.add_box(
         SCANNER_BOARD_X - 3,
         SCANNER_BOARD_Y - 3,
@@ -294,18 +298,18 @@ def add_scanner_cradle(mesh: Mesh) -> None:
     )
     mesh.add_box(
         SCANNER_BOARD_X - 3,
-        SCANNER_BOARD_Y + SCANNER_BOARD_D,
-        BOTTOM,
-        SCANNER_BOARD_W + 6,
-        3,
-        3,
-    )
-    mesh.add_box(
-        SCANNER_BOARD_X + SCANNER_BOARD_W + 1,
         SCANNER_BOARD_Y - 3,
         BOTTOM,
         3,
-        SCANNER_BOARD_D + 6,
+        side_stop_d,
+        3,
+    )
+    mesh.add_box(
+        SCANNER_BOARD_X + SCANNER_BOARD_W,
+        SCANNER_BOARD_Y - 3,
+        BOTTOM,
+        3,
+        side_stop_d,
         3,
     )
 

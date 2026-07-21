@@ -42,7 +42,8 @@ Kontroller disse punkter, før der printes en pæn version:
 - Pi 5 active cooler har fri luft over blæseren.
 - Ventilationsslidser i låg, side og bund er åbne efter slicing og ikke fyldt af support.
 - Scannerens optik ligger frit i det venstre frontvindue.
-- SEN-18088 breakoutet ligger fladt i bunden; scannermodulet kigger frem gennem frontåbningen, ikke op mod låget.
+- SEN-18088 breakoutet ligger fladt i bunden og er roteret, så den korte scannerende kigger frem gennem frontåbningen; USB-C-enden ligger længere inde i kassen.
+- Raspberry Pi 5 er placeret mod højre, så scannerprintet kan have sin fulde længde bag fronten uden at ramme Pi'en.
 - Camera Module 3-linsen er centreret i det højre frontvindue.
 - Camera Module 3 kan monteres enten normalt eller roteret 90 grader, hvis hele kassen monteres på højkant.
 - USB-C-kablet til scanneren kan ligge uden skarp bukning.
@@ -73,7 +74,7 @@ Hvis den fysiske montage giver et roteret videobillede, bør det løses i softwa
 Elektronikken er tænkt fastgjort med gennemgående M2-skruer og almindelige M2-møtrikker:
 
 - Raspberry Pi 5: fire M2-standoffs i bunden.
-- SEN-18088 breakout: to M2-mounts ved SparkFuns egne stand-off-huller.
+- SEN-18088 breakout: to M2-mounts ved SparkFuns egne bageste stand-off-huller.
 - Camera Module 3: fire M2-mounts, brug de huller der passer til valgt retning.
 - Låg: M2-skruer ned i hjørneposter med M2-møtriklommer.
 
