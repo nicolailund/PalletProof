@@ -16,7 +16,26 @@ autofocus_mode = "continuous"
 autofocus_range = "full"
 autofocus_speed = "fast"
 
+[hardware_scanner]
+# Standardflowet bruger SEN-18088 via USB-COM/virtuel seriel port.
+# "auto" leder efter /dev/serial/by-id/*, /dev/ttyACM* og derefter /dev/ttyUSB*.
+# Hvis Pi'en ogsaa har USB 4G/5G-modem, er det bedst at saette den konkrete scanner-port
+# efter test, fx device = "/dev/serial/by-id/usb-..."
+enabled = true
+device = "auto"
+baudrate = 115200
+reconnect_seconds = 5.0
+line_idle_seconds = 0.25
+duplicate_suppress_seconds = 2.0
+min_chars = 4
+max_chars = 128
+accepted_pattern = "^[A-Za-z0-9_.()$/+%-]+$"
+validate_gs1_ai01_check_digit = true
+
 [barcode]
+# Kamera-baseret barcode-scanning er nu fallback og er som standard slaaet fra,
+# fordi den bruger CPU og kan give falske/manglende laesninger.
+enabled = false
 scan_every_n_frames = 2
 min_chars = 4
 max_chars = 64

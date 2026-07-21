@@ -27,10 +27,23 @@ autofocus_speed = "fast"
 roi = [0.1, 0.2, 0.3, 0.4]
 
 [barcode]
+enabled = true
 roi = [0.2, 0.1, 0.5, 0.7]
 rotation_degrees = [0, 90]
 formats = ["Code128", "Code39"]
 scan_scales = [1.0, 2.0]
+
+[hardware_scanner]
+enabled = true
+device = "/dev/serial/by-id/usb-test-scanner"
+baudrate = 9600
+reconnect_seconds = 3.0
+line_idle_seconds = 0.4
+duplicate_suppress_seconds = 1.0
+min_chars = 5
+max_chars = 80
+accepted_pattern = "^[A-Z0-9-]+$"
+validate_gs1_ai01_check_digit = false
 
 [privacy]
 fixed_masks = [[0.0, 0.0, 0.2, 0.2]]
@@ -62,9 +75,20 @@ jpeg_quality = 70
             self.assertEqual(config.camera.autofocus_mode, "continuous")
             self.assertEqual(config.camera.autofocus_range, "full")
             self.assertEqual(config.camera.autofocus_speed, "fast")
+            self.assertTrue(config.barcode.enabled)
             self.assertEqual(config.barcode.scan_every_n_frames, 2)
             self.assertEqual(config.barcode.confirm_read_count, 2)
             self.assertTrue(config.barcode.validate_gs1_ai01_check_digit)
+            self.assertTrue(config.hardware_scanner.enabled)
+            self.assertEqual(config.hardware_scanner.device, "/dev/serial/by-id/usb-test-scanner")
+            self.assertEqual(config.hardware_scanner.baudrate, 9600)
+            self.assertEqual(config.hardware_scanner.reconnect_seconds, 3.0)
+            self.assertEqual(config.hardware_scanner.line_idle_seconds, 0.4)
+            self.assertEqual(config.hardware_scanner.duplicate_suppress_seconds, 1.0)
+            self.assertEqual(config.hardware_scanner.min_chars, 5)
+            self.assertEqual(config.hardware_scanner.max_chars, 80)
+            self.assertEqual(config.hardware_scanner.accepted_pattern, "^[A-Z0-9-]+$")
+            self.assertFalse(config.hardware_scanner.validate_gs1_ai01_check_digit)
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))
             self.assertEqual(config.motion.minimum_recording_seconds, 30.0)
             self.assertEqual(config.barcode.roi, (0.2, 0.1, 0.5, 0.7))

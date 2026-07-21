@@ -25,6 +25,7 @@ class CameraConfig:
 
 @dataclass(frozen=True)
 class BarcodeConfig:
+    enabled: bool = False
     scan_every_n_frames: int = 2
     min_chars: int = 4
     max_chars: int = 64
@@ -61,6 +62,20 @@ class BarcodeConfig:
     duplicate_suppress_seconds: float = 8.0
     ambient_suppress_seconds: float = 2.0
     ambient_absent_seconds: float = 2.0
+    validate_gs1_ai01_check_digit: bool = True
+
+
+@dataclass(frozen=True)
+class HardwareScannerConfig:
+    enabled: bool = True
+    device: str = "auto"
+    baudrate: int = 115200
+    reconnect_seconds: float = 5.0
+    line_idle_seconds: float = 0.25
+    duplicate_suppress_seconds: float = 2.0
+    min_chars: int = 4
+    max_chars: int = 128
+    accepted_pattern: str = r"^[A-Za-z0-9_.()$/+%-]+$"
     validate_gs1_ai01_check_digit: bool = True
 
 
@@ -161,6 +176,7 @@ class Paths:
 class AppConfig:
     camera: CameraConfig = field(default_factory=CameraConfig)
     barcode: BarcodeConfig = field(default_factory=BarcodeConfig)
+    hardware_scanner: HardwareScannerConfig = field(default_factory=HardwareScannerConfig)
     motion: MotionConfig = field(default_factory=MotionConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
@@ -181,6 +197,7 @@ def load_config(path: Path) -> AppConfig:
     return AppConfig(
         camera=_dataclass_from_dict(CameraConfig, raw.get("camera", {})),
         barcode=_build_barcode(raw.get("barcode", {})),
+        hardware_scanner=_build_hardware_scanner(raw.get("hardware_scanner", {})),
         motion=_build_motion(raw.get("motion", {})),
         recording=recording,
         privacy=_build_privacy(raw.get("privacy", {})),
@@ -225,6 +242,23 @@ def _build_barcode(raw: dict[str, Any]) -> BarcodeConfig:
         raise ValueError("barcode.ambient_suppress_seconds cannot be negative")
     if config.ambient_absent_seconds <= 0:
         raise ValueError("barcode.ambient_absent_seconds must be positive")
+    return config
+
+
+def _build_hardware_scanner(raw: dict[str, Any]) -> HardwareScannerConfig:
+    config = _dataclass_from_dict(HardwareScannerConfig, dict(raw))
+    if not config.device:
+        raise ValueError("hardware_scanner.device cannot be empty")
+    if config.baudrate <= 0:
+        raise ValueError("hardware_scanner.baudrate must be positive")
+    if config.reconnect_seconds <= 0:
+        raise ValueError("hardware_scanner.reconnect_seconds must be positive")
+    if config.line_idle_seconds < 0:
+        raise ValueError("hardware_scanner.line_idle_seconds cannot be negative")
+    if config.duplicate_suppress_seconds < 0:
+        raise ValueError("hardware_scanner.duplicate_suppress_seconds cannot be negative")
+    if config.min_chars < 1 or config.max_chars < config.min_chars:
+        raise ValueError("hardware_scanner min/max character limits are invalid")
     return config
 
 

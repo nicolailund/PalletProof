@@ -2,8 +2,8 @@
 
 MVP til en Raspberry Pi 5 med kamera ved en folieringsmaskine:
 
-1. Lageret viser en stregkode til kameraet.
-2. Pi'en læser ordrenummeret og giver et lydsignal.
+1. Lageret scanner ordrenummeret med en SEN-18088 2D barcode scanner.
+2. Pi'en modtager ordrenummeret og giver et lyd-/lys-signal.
 3. Pi'en optager video, mens pallen drejer.
 4. Optagelsen stopper, når pallen har stået stille i et konfigureret antal sekunder.
 5. Videoen gemmes lokalt i en kø og uploades til FTP/FTPS med ordrenummer, dato og tid i filnavnet.
@@ -19,6 +19,7 @@ MVP til en Raspberry Pi 5 med kamera ved en folieringsmaskine:
 ## Hardwareforslag
 
 - Raspberry Pi 5 med aktiv køling.
+- SparkFun SEN-18088 2D Barcode Scanner Breakout til ordrenummer-scan.
 - Raspberry Pi Camera Module 3 eller HQ-kamera, afhængigt af afstand og lys.
 - Fast montering på siden af folieringsmaskinen.
 - Ekstra LED-lys hvis lagerlyset varierer.
@@ -55,8 +56,8 @@ Ret især:
 - `upload.username`
 - `upload.password`
 - `upload.remote_dir`
-- `barcode.accepted_pattern`
-- `barcode.roi`
+- `hardware_scanner.device`
+- `hardware_scanner.accepted_pattern`
 - `motion.roi`
 
 `motion.roi` er den del af billedet, hvor pallen forventes at dreje. Formatet er normaliseret:
@@ -83,7 +84,66 @@ opencv_device = 0
 
 `backend = "auto"` vælger Raspberry Pi Camera Module via Picamera2/libcamera, hvis et internt CSI-kamera er detekteret. Hvis der ikke findes et internt kamera, bruges USB-kamera via OpenCV/V4L2.
 
-## Kamerabaseret stregkodelæsning
+## SEN-18088 hardware-scanner
+
+Anbefalet tilslutning er USB:
+
+1. Sæt SEN-18088 i Raspberry Pi'en med USB-C.
+2. Scanneren skal stå i USB-COM/Virtual COM-tilstand, ikke USB keyboard/HID, når den skal bruges af systemd-servicen.
+3. Find den port Pi'en ser:
+
+```bash
+ls -l /dev/serial/by-id/ /dev/ttyACM* /dev/ttyUSB* 2>/dev/null
+```
+
+4. Sæt gerne den konkrete port i `config.toml`, især hvis Pi'en også har USB 4G/5G-modem:
+
+```toml
+[hardware_scanner]
+enabled = true
+device = "/dev/serial/by-id/usb-SCANNER_NAVN"
+baudrate = 115200
+```
+
+`device = "auto"` virker ofte fint, men 4G/5G-modems kan også oprette serielle porte. En konkret `/dev/serial/by-id/...` er derfor mest stabilt i drift.
+
+Til test:
+
+```bash
+sudo journalctl -u pallet-video -f
+```
+
+Scan derefter en ordrestregkode. Loggen skal vise `Hardware scanner read barcode/order number` og derefter `Starting recording for order ...`. SEN-18088 har egen buzzer/status-LED ved korrekt decode; appens statuslys/ACT-LED blinker først, når Pi-servicen faktisk har modtaget og godkendt værdien.
+
+Hvis scanneren skriver ordrenummeret som tastaturinput i PuTTY/browseren, står den sandsynligvis i USB keyboard/HID-tilstand. Det er fint til manuel test, men ikke driftssikkert for en baggrundsservice. Skift den til USB-COM/Virtual COM via scannerens konfigurationsstregkoder.
+
+### UART som reserve
+
+USB er enklest og mest støjsikkert. Hvis USB ikke kan bruges, kan SEN-18088 forbindes direkte til Pi'ens UART med 3.3V TTL:
+
+```text
+SEN-18088 3.3V -> Pi 3V3, fysisk pin 1 eller 17
+SEN-18088 GND  -> Pi GND, fysisk pin 6, 9, 14, 20, 25, 30, 34 eller 39
+SEN-18088 TX   -> Pi RXD0/GPIO15, fysisk pin 10
+SEN-18088 RX   -> Pi TXD0/GPIO14, fysisk pin 8
+```
+
+På SparkFun-breakoutets header skal du følge silketrykket på printet: `STAT TRIG 3.3V RX TX GND`. TX og RX krydses altid mellem scanner og Pi. Aktiver derefter Pi'ens serial port uden login-shell:
+
+```bash
+sudo raspi-config
+```
+
+Vælg `Interface Options` -> `Serial Port`: login shell = `No`, serial hardware = `Yes`.
+
+## Kamerabaseret stregkodelæsning som fallback
+
+Kamera-scanning er som standard slået fra, fordi SEN-18088 er mere stabil og bruger langt mindre CPU. Hvis kameraet skal bruges som fallback, kan det aktiveres:
+
+```toml
+[barcode]
+enabled = true
+```
 
 Barcode-læsningen prøver flere billedvarianter, så labelen ikke behøver at være perfekt vandret:
 
@@ -103,7 +163,7 @@ Standardfilteret tillader også Code 39-specialtegn som `$`, `/`, `+` og `%` sam
 
 Til drift bør `barcode.roi`, lys, afstand og fokus testes med de faktiske lagerlabels. Den aggressive scanning kan også fange produktstregkoder på pallen, hvis de er synlige. Hvis CPU-belastningen bliver for høj, er første justering at snævre `barcode.roi` ind og reducere `barcode.scan_scales` eller `barcode.rotation_degrees`.
 
-Mens servicen venter på barcode, skriver den periodisk `BARCODE_SCAN_STATUS` i loggen. Den linje viser om kamera-loopet lever, hvor mange scan-jobs der er sendt/færdige, og hvor længe den aktuelle scan har kørt.
+Mens servicen venter på barcode, skriver den periodisk `SCAN_STATUS` i loggen. Den linje viser om kamera-loopet lever, om hardware-scanneren er forbundet, hvilken port der bruges, og hvor mange hardware-scans der er modtaget. Hvis kamera-scanning er slået til, bruges den udvidede `BARCODE_SCAN_STATUS` med både hardware- og kamera-scan-tal.
 
 ## Midlertidig scan-feedback med Piens ACT-LED
 
