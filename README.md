@@ -89,7 +89,7 @@ opencv_device = 0
 Anbefalet tilslutning er USB:
 
 1. Sæt SEN-18088 i Raspberry Pi'en med USB-C.
-2. Scanneren skal stå i USB-COM/Virtual COM-tilstand, ikke USB keyboard/HID, når den skal bruges af systemd-servicen.
+2. Scanneren kan bruges i enten USB keyboard/HID-tilstand eller USB-COM/Virtual COM-tilstand. Appen prøver begge med `mode = "auto"`.
 3. Find den port Pi'en ser:
 
 ```bash
@@ -101,11 +101,12 @@ ls -l /dev/serial/by-id/ /dev/ttyACM* /dev/ttyUSB* 2>/dev/null
 ```toml
 [hardware_scanner]
 enabled = true
+mode = "auto"
 device = "/dev/serial/by-id/usb-SCANNER_NAVN"
 baudrate = 115200
 ```
 
-`device = "auto"` virker ofte fint, men 4G/5G-modems kan også oprette serielle porte. En konkret `/dev/serial/by-id/...` er derfor mest stabilt i drift.
+`device = "auto"` virker ofte fint. Hvis den står i HID-tilstand, vil porten ligne `/dev/input/by-id/...event-kbd`; hvis den står i COM-tilstand, vil den typisk ligne `/dev/serial/by-id/...` eller `/dev/ttyACM0`. En konkret `/dev/input/by-id/...` eller `/dev/serial/by-id/...` er mest stabilt i drift, især hvis Pi'en også har 4G/5G-modem.
 
 Til test:
 
@@ -115,7 +116,7 @@ sudo journalctl -u pallet-video -f
 
 Scan derefter en ordrestregkode. Loggen skal vise `Hardware scanner read barcode/order number` og derefter `Starting recording for order ...`. SEN-18088 har egen buzzer/status-LED ved korrekt decode; appens statuslys/ACT-LED blinker først, når Pi-servicen faktisk har modtaget og godkendt værdien.
 
-Hvis scanneren skriver ordrenummeret som tastaturinput i PuTTY/browseren, står den sandsynligvis i USB keyboard/HID-tilstand. Det er fint til manuel test, men ikke driftssikkert for en baggrundsservice. Skift den til USB-COM/Virtual COM via scannerens konfigurationsstregkoder.
+Hvis scanneren skriver ordrenummeret som tastaturinput i PuTTY/browseren, står den i USB keyboard/HID-tilstand. Appen kan læse den tilstand direkte via `/dev/input/...`, men servicebrugeren skal have adgang til input-enheden. På Pi'en løses det typisk ved at tilføje `palletcam` til gruppen `input` og genstarte servicen.
 
 ### UART som reserve
 

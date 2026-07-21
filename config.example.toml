@@ -17,11 +17,14 @@ autofocus_range = "full"
 autofocus_speed = "fast"
 
 [hardware_scanner]
-# Standardflowet bruger SEN-18088 via USB-COM/virtuel seriel port.
-# "auto" leder efter /dev/serial/by-id/*, /dev/ttyACM* og derefter /dev/ttyUSB*.
+# Standardflowet bruger SEN-18088 via USB. "auto" kan laese baade HID-keyboard
+# og USB-COM/virtuel seriel port.
+# Den leder efter /dev/input/by-id/*event-kbd, /dev/serial/by-id/*,
+# /dev/ttyACM* og derefter /dev/ttyUSB*.
 # Hvis Pi'en ogsaa har USB 4G/5G-modem, er det bedst at saette den konkrete scanner-port
 # efter test, fx device = "/dev/serial/by-id/usb-..."
 enabled = true
+mode = "auto" # "auto", "serial" eller "hid_keyboard"
 device = "auto"
 baudrate = 115200
 reconnect_seconds = 5.0

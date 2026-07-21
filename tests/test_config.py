@@ -35,6 +35,7 @@ scan_scales = [1.0, 2.0]
 
 [hardware_scanner]
 enabled = true
+mode = "hid_keyboard"
 device = "/dev/serial/by-id/usb-test-scanner"
 baudrate = 9600
 reconnect_seconds = 3.0
@@ -80,6 +81,7 @@ jpeg_quality = 70
             self.assertEqual(config.barcode.confirm_read_count, 2)
             self.assertTrue(config.barcode.validate_gs1_ai01_check_digit)
             self.assertTrue(config.hardware_scanner.enabled)
+            self.assertEqual(config.hardware_scanner.mode, "hid_keyboard")
             self.assertEqual(config.hardware_scanner.device, "/dev/serial/by-id/usb-test-scanner")
             self.assertEqual(config.hardware_scanner.baudrate, 9600)
             self.assertEqual(config.hardware_scanner.reconnect_seconds, 3.0)

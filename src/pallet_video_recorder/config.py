@@ -68,6 +68,7 @@ class BarcodeConfig:
 @dataclass(frozen=True)
 class HardwareScannerConfig:
     enabled: bool = True
+    mode: str = "auto"
     device: str = "auto"
     baudrate: int = 115200
     reconnect_seconds: float = 5.0
@@ -247,6 +248,8 @@ def _build_barcode(raw: dict[str, Any]) -> BarcodeConfig:
 
 def _build_hardware_scanner(raw: dict[str, Any]) -> HardwareScannerConfig:
     config = _dataclass_from_dict(HardwareScannerConfig, dict(raw))
+    if config.mode not in {"auto", "serial", "hid_keyboard"}:
+        raise ValueError("hardware_scanner.mode must be 'auto', 'serial' or 'hid_keyboard'")
     if not config.device:
         raise ValueError("hardware_scanner.device cannot be empty")
     if config.baudrate <= 0:

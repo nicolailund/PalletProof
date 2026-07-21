@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 
 from pallet_video_recorder.config import HardwareScannerConfig
-from pallet_video_recorder.hardware_scanner import HardwareScannerWorker, _device_sort_key
+from pallet_video_recorder.hardware_scanner import (
+    HardwareScannerWorker,
+    ScannerDevice,
+    _device_sort_key,
+    _hid_key_to_char,
+)
 
 
 class HardwareScannerWorkerTest(unittest.TestCase):
@@ -61,10 +66,18 @@ class HardwareScannerWorkerTest(unittest.TestCase):
         )
         buffer = bytearray(b"ORD-123")
 
-        self.assertFalse(worker._is_idle_line_complete(buffer, last_byte_at=100.0))
+        self.assertFalse(worker._is_idle_line_complete(bool(buffer), last_byte_at=100.0))
         now[0] = 100.3
 
-        self.assertTrue(worker._is_idle_line_complete(buffer, last_byte_at=100.0))
+        self.assertTrue(worker._is_idle_line_complete(bool(buffer), last_byte_at=100.0))
+
+    def test_maps_hid_keyboard_events_to_characters(self) -> None:
+        self.assertEqual(_hid_key_to_char(30, shifted=False), "a")
+        self.assertEqual(_hid_key_to_char(30, shifted=True), "A")
+        self.assertEqual(_hid_key_to_char(10, shifted=True), "(")
+        self.assertEqual(_hid_key_to_char(11, shifted=True), ")")
+        self.assertEqual(_hid_key_to_char(12, shifted=False), "-")
+        self.assertEqual(_hid_key_to_char(13, shifted=True), "+")
 
     def test_prefers_scanner_like_device_over_modem(self) -> None:
         paths = [
@@ -76,6 +89,17 @@ class HardwareScannerWorkerTest(unittest.TestCase):
         self.assertEqual(
             sorted(paths, key=_device_sort_key)[0],
             "/dev/serial/by-id/usb-SparkFun_Barcode_Scanner-if00",
+        )
+
+    def test_prefers_hid_scanner_in_auto_mode(self) -> None:
+        devices = [
+            ScannerDevice("serial", "/dev/serial/by-id/usb-Quectel_4G_Modem-if00-port0"),
+            ScannerDevice("hid_keyboard", "/dev/input/by-id/usb-SAGE_Technology_QR_Scanner-event-kbd"),
+        ]
+
+        self.assertEqual(
+            sorted(devices, key=_device_sort_key)[0],
+            ScannerDevice("hid_keyboard", "/dev/input/by-id/usb-SAGE_Technology_QR_Scanner-event-kbd"),
         )
 
 

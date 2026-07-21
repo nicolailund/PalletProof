@@ -7,6 +7,7 @@ import glob
 import logging
 import re
 import select
+import struct
 import threading
 import time
 from typing import BinaryIO
@@ -20,6 +21,10 @@ AUTO_DEVICE_PATTERNS = (
     "/dev/serial/by-id/*",
     "/dev/ttyACM*",
     "/dev/ttyUSB*",
+)
+
+AUTO_HID_PATTERNS = (
+    "/dev/input/by-id/*event-kbd",
 )
 
 SCANNER_DEVICE_HINTS = (
@@ -45,6 +50,81 @@ MODEM_DEVICE_HINTS = (
     "simcom",
 )
 
+EV_KEY = 1
+KEY_ENTER = 28
+KEY_TAB = 15
+KEY_BACKSPACE = 14
+KEY_KPENTER = 96
+SHIFT_CODES = {42, 54}
+LINE_COMMIT_KEYS = {KEY_ENTER, KEY_KPENTER, KEY_TAB}
+LINUX_INPUT_EVENT = struct.Struct("llHHi")
+
+HID_KEYMAP: dict[int, tuple[str, str]] = {
+    2: ("1", "!"),
+    3: ("2", "@"),
+    4: ("3", "#"),
+    5: ("4", "$"),
+    6: ("5", "%"),
+    7: ("6", "^"),
+    8: ("7", "&"),
+    9: ("8", "*"),
+    10: ("9", "("),
+    11: ("0", ")"),
+    12: ("-", "_"),
+    13: ("=", "+"),
+    16: ("q", "Q"),
+    17: ("w", "W"),
+    18: ("e", "E"),
+    19: ("r", "R"),
+    20: ("t", "T"),
+    21: ("y", "Y"),
+    22: ("u", "U"),
+    23: ("i", "I"),
+    24: ("o", "O"),
+    25: ("p", "P"),
+    26: ("[", "{"),
+    27: ("]", "}"),
+    30: ("a", "A"),
+    31: ("s", "S"),
+    32: ("d", "D"),
+    33: ("f", "F"),
+    34: ("g", "G"),
+    35: ("h", "H"),
+    36: ("j", "J"),
+    37: ("k", "K"),
+    38: ("l", "L"),
+    39: (";", ":"),
+    40: ("'", '"'),
+    41: ("`", "~"),
+    43: ("\\", "|"),
+    44: ("z", "Z"),
+    45: ("x", "X"),
+    46: ("c", "C"),
+    47: ("v", "V"),
+    48: ("b", "B"),
+    49: ("n", "N"),
+    50: ("m", "M"),
+    51: (",", "<"),
+    52: (".", ">"),
+    53: ("/", "?"),
+    55: ("*", "*"),
+    57: (" ", " "),
+    74: ("-", "-"),
+    78: ("+", "+"),
+    79: ("1", "1"),
+    80: ("2", "2"),
+    81: ("3", "3"),
+    82: ("0", "0"),
+    83: (".", "."),
+    71: ("7", "7"),
+    72: ("8", "8"),
+    73: ("9", "9"),
+    75: ("4", "4"),
+    76: ("5", "5"),
+    77: ("6", "6"),
+    98: ("/", "/"),
+}
+
 
 @dataclass(frozen=True)
 class HardwareScannerStats:
@@ -54,6 +134,12 @@ class HardwareScannerStats:
     read_count: int
     queued_results: int
     last_result: str | None
+
+
+@dataclass(frozen=True)
+class ScannerDevice:
+    mode: str
+    path: str
 
 
 class HardwareScannerWorker:
@@ -139,31 +225,52 @@ class HardwareScannerWorker:
             if device is None:
                 self._set_connected(False, None)
                 LOGGER.warning(
-                    "No hardware barcode scanner serial device found; retrying in %.1fs",
+                    "No hardware barcode scanner device found; retrying in %.1fs",
                     self.config.reconnect_seconds,
                 )
                 self._stop_event.wait(self.config.reconnect_seconds)
                 continue
 
             try:
-                self._read_device(device)
+                if device.mode == "hid_keyboard":
+                    self._read_hid_device(device.path)
+                else:
+                    self._read_serial_device(device.path)
+            except PermissionError as exc:
+                if not self._stop_event.is_set():
+                    LOGGER.warning(
+                        "Cannot read hardware barcode scanner %s; check service user input-device permissions: %s",
+                        device.path,
+                        exc,
+                    )
             except Exception as exc:
                 if not self._stop_event.is_set():
-                    LOGGER.warning("Hardware barcode scanner disconnected or failed on %s: %s", device, exc)
+                    LOGGER.warning(
+                        "Hardware barcode scanner disconnected or failed on %s: %s",
+                        device.path,
+                        exc,
+                    )
             finally:
-                self._set_connected(False, device)
+                self._set_connected(False, device.path)
 
             self._stop_event.wait(self.config.reconnect_seconds)
 
-    def _read_device(self, device: str) -> None:
+    def _read_serial_device(self, device: str) -> None:
         LOGGER.info("Opening hardware barcode scanner on %s at %s baud", device, self.config.baudrate)
         with open(device, "rb", buffering=0) as handle:
             _configure_serial(handle.fileno(), self.config.baudrate)
             self._set_connected(True, device)
             LOGGER.info("Hardware barcode scanner ready on %s", device)
-            self._read_loop(handle)
+            self._read_serial_loop(handle)
 
-    def _read_loop(self, handle: BinaryIO) -> None:
+    def _read_hid_device(self, device: str) -> None:
+        LOGGER.info("Opening HID keyboard barcode scanner on %s", device)
+        with open(device, "rb", buffering=0) as handle:
+            self._set_connected(True, device)
+            LOGGER.info("HID keyboard barcode scanner ready on %s", device)
+            self._read_hid_loop(handle)
+
+    def _read_serial_loop(self, handle: BinaryIO) -> None:
         buffer = bytearray()
         max_buffer_size = max(self.config.max_chars * 4, 256)
         last_byte_at: float | None = None
@@ -172,8 +279,8 @@ class HardwareScannerWorker:
             timeout = _read_timeout(self.config.line_idle_seconds)
             ready, _, _ = select.select([handle], [], [], timeout)
             if not ready:
-                if self._is_idle_line_complete(buffer, last_byte_at):
-                    self._handle_line(buffer)
+                if self._is_idle_line_complete(bool(buffer), last_byte_at):
+                    self._handle_serial_line(buffer)
                     buffer.clear()
                     last_byte_at = None
                 continue
@@ -184,7 +291,7 @@ class HardwareScannerWorker:
 
             for byte in chunk:
                 if byte in (10, 13):
-                    self._handle_line(buffer)
+                    self._handle_serial_line(buffer)
                     buffer.clear()
                     last_byte_at = None
                     continue
@@ -199,16 +306,77 @@ class HardwareScannerWorker:
                     buffer.clear()
                     last_byte_at = None
 
-    def _handle_line(self, buffer: bytearray) -> None:
+    def _read_hid_loop(self, handle: BinaryIO) -> None:
+        buffer: list[str] = []
+        shift_codes: set[int] = set()
+        last_key_at: float | None = None
+
+        while not self._stop_event.is_set():
+            timeout = _read_timeout(self.config.line_idle_seconds)
+            ready, _, _ = select.select([handle], [], [], timeout)
+            if not ready:
+                if self._is_idle_line_complete(bool(buffer), last_key_at):
+                    self._handle_text_line("".join(buffer))
+                    buffer.clear()
+                    last_key_at = None
+                continue
+
+            data = handle.read(LINUX_INPUT_EVENT.size)
+            if not data:
+                raise OSError("HID input device returned EOF")
+            if len(data) != LINUX_INPUT_EVENT.size:
+                continue
+
+            _, _, event_type, code, value = LINUX_INPUT_EVENT.unpack(data)
+            if event_type != EV_KEY:
+                continue
+
+            if code in SHIFT_CODES:
+                if value == 0:
+                    shift_codes.discard(code)
+                elif value == 1:
+                    shift_codes.add(code)
+                continue
+
+            if value != 1:
+                continue
+
+            if code in LINE_COMMIT_KEYS:
+                self._handle_text_line("".join(buffer))
+                buffer.clear()
+                last_key_at = None
+                continue
+
+            if code == KEY_BACKSPACE:
+                if buffer:
+                    buffer.pop()
+                last_key_at = self._clock()
+                continue
+
+            character = _hid_key_to_char(code, shifted=bool(shift_codes))
+            if character is None:
+                continue
+
+            buffer.append(character)
+            last_key_at = self._clock()
+            if len(buffer) > self.config.max_chars * 4:
+                LOGGER.warning("Ignoring overlong HID hardware barcode scanner line")
+                buffer.clear()
+                last_key_at = None
+
+    def _handle_serial_line(self, buffer: bytearray) -> None:
         if not buffer:
             return
         raw_value = bytes(buffer).decode("utf-8", errors="replace")
+        self._handle_text_line(raw_value)
+
+    def _handle_text_line(self, raw_value: str) -> None:
         value = self.normalize(raw_value)
         if value is not None:
             self._queue_value(value)
 
-    def _is_idle_line_complete(self, buffer: bytearray, last_byte_at: float | None) -> bool:
-        if not buffer or last_byte_at is None or self.config.line_idle_seconds <= 0:
+    def _is_idle_line_complete(self, has_buffer: bool, last_byte_at: float | None) -> bool:
+        if not has_buffer or last_byte_at is None or self.config.line_idle_seconds <= 0:
             return False
         return self._clock() - last_byte_at >= self.config.line_idle_seconds
 
@@ -229,14 +397,18 @@ class HardwareScannerWorker:
 
         LOGGER.info("Hardware scanner read barcode/order number: %s", value)
 
-    def _resolve_device(self) -> str | None:
+    def _resolve_device(self) -> ScannerDevice | None:
         configured_device = self.config.device.strip()
         if configured_device.lower() != "auto":
-            return configured_device
+            return ScannerDevice(_configured_mode(configured_device, self.config.mode), configured_device)
 
-        candidates: set[str] = set()
-        for pattern in AUTO_DEVICE_PATTERNS:
-            candidates.update(glob.glob(pattern))
+        candidates: list[ScannerDevice] = []
+        if self.config.mode in {"auto", "serial"}:
+            for pattern in AUTO_DEVICE_PATTERNS:
+                candidates.extend(ScannerDevice("serial", path) for path in glob.glob(pattern))
+        if self.config.mode in {"auto", "hid_keyboard"}:
+            for pattern in AUTO_HID_PATTERNS:
+                candidates.extend(ScannerDevice("hid_keyboard", path) for path in glob.glob(pattern))
 
         if not candidates:
             return None
@@ -249,11 +421,20 @@ class HardwareScannerWorker:
             self._device = device
 
 
-def _device_sort_key(path: str) -> tuple[int, str]:
+def _device_sort_key(device: ScannerDevice | str) -> tuple[int, str]:
+    if isinstance(device, ScannerDevice):
+        mode = device.mode
+        path = device.path
+    else:
+        mode = _configured_mode(device, "auto")
+        path = device
+
     lower_path = path.lower()
     score = 50
 
-    if lower_path.startswith("/dev/serial/by-id/"):
+    if mode == "hid_keyboard":
+        score = 15
+    elif lower_path.startswith("/dev/serial/by-id/"):
         score = 20
     elif lower_path.startswith("/dev/ttyacm"):
         score = 30
@@ -266,6 +447,21 @@ def _device_sort_key(path: str) -> tuple[int, str]:
         score += 40
 
     return score, path
+
+
+def _configured_mode(device: str, configured_mode: str) -> str:
+    if configured_mode in {"serial", "hid_keyboard"}:
+        return configured_mode
+    if device.startswith("/dev/input/"):
+        return "hid_keyboard"
+    return "serial"
+
+
+def _hid_key_to_char(code: int, shifted: bool) -> str | None:
+    values = HID_KEYMAP.get(code)
+    if values is None:
+        return None
+    return values[1] if shifted else values[0]
 
 
 def _read_timeout(line_idle_seconds: float) -> float:
