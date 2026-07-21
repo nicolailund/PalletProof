@@ -19,9 +19,10 @@ Kassen er bevidst lavet lidt større end elektronikken, så den virker som et ro
 
 - hævet front omkring scanner- og kameravindue
 - lukket bund og sider
-- ventilationsslidser over Pi 5
+- ventilationsslidser over, ved siden af og under Pi 5
 - intern kabelplads til USB-C, CSI-kabel og trigger-ledninger
 - vægflange/montagepunkter bagpå
+- M2-gennemføringer og M2-møtriklommer til elektronikmontage
 
 ## Printforslag
 
@@ -39,9 +40,12 @@ Kontroller disse punkter, før der printes en pæn version:
 
 - Raspberry Pi 5 sidder på standoffs uden at HDMI/USB/Ethernet presses mod kassen.
 - Pi 5 active cooler har fri luft over blæseren.
+- Ventilationsslidser i låg, side og bund er åbne efter slicing og ikke fyldt af support.
 - Scannerens optik ligger frit i det venstre frontvindue.
 - Camera Module 3-linsen er centreret i det højre frontvindue.
+- Camera Module 3 kan monteres enten normalt eller roteret 90 grader, hvis hele kassen monteres på højkant.
 - USB-C-kablet til scanneren kan ligge uden skarp bukning.
+- USB-C-strømkablet kan komme ind fra højre side og fastholdes med kabelbinder/trækaflastning.
 - CSI-kablet til kameraet kan føres uden at blive klemt af låget.
 - GND/TRIG-ledningerne har aflastning og bliver ikke revet ud.
 
@@ -54,8 +58,25 @@ Forslag:
 - sort PETG/ASA-kasse
 - klar polycarbonatplade foran scanner- og kameravinduer, hvis der er støv eller pallefilm i luften
 - M4-skruer til vægbeslag
-- M3-skruer til låg og interne print
-- kabelgennemføring med trækaflastning på højre side
+- M2-skruer og M2-møtrikker til låg og interne print
+- USB-C-kabelgennemføring med indvendig trækaflastning på højre side
+
+## Kameraretning
+
+Løsningen forventes ofte monteret på højkant på siden af en folieringsmaskine. Derfor har kameraholderen M2-punkter til både normal og 90-graders roteret Camera Module 3-montage omkring samme linsecenter.
+
+Hvis den fysiske montage giver et roteret videobillede, bør det løses i softwarekonfigurationen frem for at printe en ny kasse. Den mekaniske prioritet er, at linsen har frit udsyn, og at CSI-kablet ikke klemmes.
+
+## M2 montage
+
+Elektronikken er tænkt fastgjort med gennemgående M2-skruer og almindelige M2-møtrikker:
+
+- Raspberry Pi 5: fire M2-standoffs i bunden.
+- SEN-18088 breakout: to M2-mounts ved SparkFuns egne stand-off-huller.
+- Camera Module 3: fire M2-mounts, brug de huller der passer til valgt retning.
+- Låg: M2-skruer ned i hjørneposter med M2-møtriklommer.
+
+Møtriklommerne er lavet med lidt tolerance til FDM-print. Første print bør bruges til at kontrollere om de passer til de konkrete M2-møtrikker.
 
 ## Vigtige antagelser
 
@@ -64,5 +85,6 @@ Målene bygger på officielle/reference-mål:
 - Raspberry Pi 5: 85 x 56 mm boardklasse med standard Raspberry Pi mounting hole-layout.
 - Raspberry Pi Camera Module 3: 25 x 24 x 11,5 mm.
 - SparkFun SEN-18088 breakout: 44,45 x 25,4 mm.
+- SparkFun SEN-18088 stand-off-huller: aflæst fra SparkFuns Eagle boardfil.
 
-Den første printversion bør forventes at skulle justeres efter den konkrete active cooler, USB-C-kabeltype, kameravinkel og ønsket afstand til stregkoden.
+Den første printversion bør forventes at skulle justeres efter den konkrete active cooler, USB-C-kabeltype, kameraretning, kameravinkel og ønsket afstand til stregkoden.

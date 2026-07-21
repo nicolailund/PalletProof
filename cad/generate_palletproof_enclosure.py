@@ -84,6 +84,26 @@ class Mesh:
                     continue
                 self.add_box(x0, y, z0, x1 - x0, t, z1 - z0)
 
+    def add_panel_yz_with_holes(
+        self,
+        x: MM,
+        y: MM,
+        z: MM,
+        d: MM,
+        h: MM,
+        t: MM,
+        holes: list[Rect],
+    ) -> None:
+        ys = _split_axis(y, y + d, [(hole.x, hole.x + hole.w) for hole in holes])
+        zs = _split_axis(z, z + h, [(hole.y, hole.y + hole.h) for hole in holes])
+        for y0, y1 in zip(ys, ys[1:]):
+            for z0, z1 in zip(zs, zs[1:]):
+                cy = (y0 + y1) / 2
+                cz = (z0 + z1) / 2
+                if any(hole.contains_point(cy, cz) for hole in holes):
+                    continue
+                self.add_box(x, y0, z0, t, y1 - y0, z1 - z0)
+
     def add_square_tube_z(
         self,
         cx: MM,
@@ -100,6 +120,23 @@ class Mesh:
         self.add_box(x0, y0 + outer - wall, z, outer, wall, h)
         self.add_box(x0, y0 + wall, z, wall, inner, h)
         self.add_box(x0 + outer - wall, y0 + wall, z, wall, inner, h)
+
+    def add_square_tube_y(
+        self,
+        cx: MM,
+        y: MM,
+        cz: MM,
+        outer: MM,
+        inner: MM,
+        d: MM,
+    ) -> None:
+        x0 = cx - outer / 2
+        z0 = cz - outer / 2
+        wall = (outer - inner) / 2
+        self.add_box(x0, y, z0, outer, d, wall)
+        self.add_box(x0, y, z0 + outer - wall, outer, d, wall)
+        self.add_box(x0, y, z0 + wall, wall, d, inner)
+        self.add_box(x0 + outer - wall, y, z0 + wall, wall, d, inner)
 
     def extend(self, other: "Mesh") -> None:
         self.triangles.extend(other.triangles)
@@ -127,6 +164,9 @@ OUTER_D = 110.0
 OUTER_H = 58.0
 WALL = 3.0
 BOTTOM = 3.0
+M2_CLEARANCE = 2.4
+M2_NUT_POCKET = 4.7
+M2_NUT_DEPTH = 2.2
 
 PI_X = 20.0
 PI_Y = 42.0
@@ -136,16 +176,58 @@ PI_HOLE_SPAN_X = 58.0
 PI_HOLE_SPAN_Y = 49.0
 PI_HOLE_OFFSET = 3.5
 
+SCANNER_BOARD_X = 18.0
+SCANNER_BOARD_Z = 15.0
+SCANNER_BOARD_W = 44.45
+SCANNER_BOARD_H = 25.4
+SCANNER_MOUNT_HOLES = (
+    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Z + 2.54),
+    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Z + 22.86),
+)
+
 SCANNER_WINDOW = Rect(16.0, 12.0, 58.0, 36.0)
-CAMERA_WINDOW = Rect(106.0, 20.0, 26.0, 26.0)
+CAMERA_WINDOW = Rect(101.0, 15.0, 36.0, 36.0)
+USB_C_POWER_ENTRY = Rect(62.0, 12.0, 35.0, 18.0)
+SIDE_VENTS = tuple(Rect(18.0 + index * 8.0, 39.0, 4.0, 13.0) for index in range(8))
+BOTTOM_VENTS = tuple(Rect(48.0 + index * 8.0, 74.0, 4.0, 24.0) for index in range(8))
+
+CAMERA_LENS_CENTER_X = CAMERA_WINDOW.x + CAMERA_WINDOW.w / 2
+CAMERA_LENS_CENTER_Z = CAMERA_WINDOW.y + CAMERA_WINDOW.h / 2
+CAMERA_MOUNT_OUTLINE_X = CAMERA_LENS_CENTER_X - 18.0
+CAMERA_MOUNT_OUTLINE_Z = CAMERA_LENS_CENTER_Z - 18.0
+CAMERA_MOUNT_OUTLINE_SIZE = 36.0
+CAMERA_HOLE_OFFSET_X = 10.5
+CAMERA_HOLE_OFFSET_Z = 10.0
+CAMERA_MOUNT_HOLES = (
+    (CAMERA_LENS_CENTER_X - CAMERA_HOLE_OFFSET_X, CAMERA_LENS_CENTER_Z - CAMERA_HOLE_OFFSET_Z),
+    (CAMERA_LENS_CENTER_X + CAMERA_HOLE_OFFSET_X, CAMERA_LENS_CENTER_Z - CAMERA_HOLE_OFFSET_Z),
+    (CAMERA_LENS_CENTER_X - CAMERA_HOLE_OFFSET_X, CAMERA_LENS_CENTER_Z + CAMERA_HOLE_OFFSET_Z),
+    (CAMERA_LENS_CENTER_X + CAMERA_HOLE_OFFSET_X, CAMERA_LENS_CENTER_Z + CAMERA_HOLE_OFFSET_Z),
+)
 
 
 def build_base() -> Mesh:
     mesh = Mesh()
 
-    mesh.add_box(0, 0, 0, OUTER_W, OUTER_D, BOTTOM)
-    mesh.add_box(0, WALL, 0, WALL, OUTER_D - WALL, OUTER_H)
-    mesh.add_box(OUTER_W - WALL, WALL, 0, WALL, OUTER_D - WALL, OUTER_H)
+    mesh.add_panel_xy_with_holes(0, 0, 0, OUTER_W, OUTER_D, BOTTOM, list(BOTTOM_VENTS))
+    mesh.add_panel_yz_with_holes(
+        0,
+        WALL,
+        0,
+        OUTER_D - WALL,
+        OUTER_H,
+        WALL,
+        list(SIDE_VENTS),
+    )
+    mesh.add_panel_yz_with_holes(
+        OUTER_W - WALL,
+        WALL,
+        0,
+        OUTER_D - WALL,
+        OUTER_H,
+        WALL,
+        [USB_C_POWER_ENTRY],
+    )
     mesh.add_box(0, OUTER_D - WALL, 0, OUTER_W, WALL, OUTER_H)
     mesh.add_panel_xz_with_holes(
         0,
@@ -157,15 +239,11 @@ def build_base() -> Mesh:
         [SCANNER_WINDOW, CAMERA_WINDOW],
     )
 
-    # Cable exit on right side, left as an open industrial cable-gland zone.
-    mesh.add_box(OUTER_W - WALL, 0, 0, WALL, 26, 15)
-    mesh.add_box(OUTER_W - WALL, 0, 41, WALL, 26, OUTER_H - 41)
-    mesh.add_box(OUTER_W - WALL, 0, 15, WALL, 5, 26)
-
     add_lid_posts(mesh)
     add_pi_standoffs(mesh)
     add_scanner_cradle(mesh)
     add_camera_cradle(mesh)
+    add_usb_c_strain_relief(mesh)
     add_wall_mount_flange(mesh)
     add_front_frames(mesh)
     return mesh
@@ -178,7 +256,7 @@ def add_lid_posts(mesh: Mesh) -> None:
         (10, OUTER_D - 10),
         (OUTER_W - 10, OUTER_D - 10),
     ):
-        mesh.add_square_tube_z(cx, cy, BOTTOM, outer=10, inner=3.4, h=OUTER_H - BOTTOM - 2)
+        add_m2_standoff_z(mesh, cx, cy, BOTTOM, OUTER_H - BOTTOM - 2, outer=10.0)
 
 
 def add_pi_standoffs(mesh: Mesh) -> None:
@@ -189,7 +267,7 @@ def add_pi_standoffs(mesh: Mesh) -> None:
         (PI_X + PI_HOLE_OFFSET + PI_HOLE_SPAN_X, PI_Y + PI_HOLE_OFFSET + PI_HOLE_SPAN_Y),
     )
     for cx, cy in hole_points:
-        mesh.add_square_tube_z(cx, cy, BOTTOM, outer=8.0, inner=2.9, h=8.0)
+        add_m2_standoff_z(mesh, cx, cy, BOTTOM, 8.0, outer=8.0)
 
     # Low keep-out outline for the Pi board footprint.
     mesh.add_box(PI_X, PI_Y, BOTTOM, PI_W, 1.2, 2.0)
@@ -199,21 +277,56 @@ def add_pi_standoffs(mesh: Mesh) -> None:
 
 
 def add_scanner_cradle(mesh: Mesh) -> None:
-    # SparkFun SEN-18088 board is 44.45 x 25.4 mm. Rails are intentionally generous.
-    mesh.add_box(11, WALL, 8, 4, 16, 44)
-    mesh.add_box(75, WALL, 8, 4, 16, 44)
-    mesh.add_box(15, WALL, 7, 60, 10, 4)
-    mesh.add_box(15, WALL, 50, 60, 10, 4)
-    mesh.add_box(24, WALL + 12, 10, 5, 5, 38)
-    mesh.add_box(64, WALL + 12, 10, 5, 5, 38)
+    # SparkFun SEN-18088 board is 44.45 x 25.4 mm. The two breakout standoff
+    # holes are on the rear side of the board and get M2 screw/nut mounts here.
+    mesh.add_box(SCANNER_BOARD_X - 3, WALL, SCANNER_BOARD_Z - 3, 4, 12, SCANNER_BOARD_H + 6)
+    mesh.add_box(SCANNER_BOARD_X + SCANNER_BOARD_W + 3, WALL, SCANNER_BOARD_Z - 3, 4, 12, SCANNER_BOARD_H + 6)
+    mesh.add_box(SCANNER_BOARD_X - 3, WALL, SCANNER_BOARD_Z - 3, SCANNER_BOARD_W + 10, 8, 3)
+    mesh.add_box(
+        SCANNER_BOARD_X - 3,
+        WALL,
+        SCANNER_BOARD_Z + SCANNER_BOARD_H,
+        SCANNER_BOARD_W + 10,
+        8,
+        3,
+    )
+    for cx, cz in SCANNER_MOUNT_HOLES:
+        add_m2_mount_y(mesh, cx, WALL, cz, d=13.0, outer=8.0)
 
 
 def add_camera_cradle(mesh: Mesh) -> None:
-    # Camera Module 3 board is 25 x 24 mm; this keeps the lens centered in a protected window.
-    mesh.add_box(101, WALL, 16, 4, 14, 34)
-    mesh.add_box(134, WALL, 16, 4, 14, 34)
-    mesh.add_box(105, WALL, 16, 29, 10, 4)
-    mesh.add_box(105, WALL, 48, 29, 10, 4)
+    # Camera Module 3 board can be installed normal or rotated 90 degrees. Both
+    # patterns share the same lens center, which is useful when the enclosure is
+    # mounted upright at the wrapping machine.
+    mesh.add_box(
+        CAMERA_MOUNT_OUTLINE_X,
+        WALL,
+        CAMERA_MOUNT_OUTLINE_Z,
+        CAMERA_MOUNT_OUTLINE_SIZE,
+        8,
+        3,
+    )
+    mesh.add_box(
+        CAMERA_MOUNT_OUTLINE_X,
+        WALL,
+        CAMERA_MOUNT_OUTLINE_Z + CAMERA_MOUNT_OUTLINE_SIZE - 3,
+        CAMERA_MOUNT_OUTLINE_SIZE,
+        8,
+        3,
+    )
+    for cx, cz in CAMERA_MOUNT_HOLES:
+        add_m2_mount_y(mesh, cx, WALL, cz, d=13.0, outer=7.0)
+
+
+def add_usb_c_strain_relief(mesh: Mesh) -> None:
+    # Power enters through the right-side USB-C slot. These paired posts are for
+    # a small zip tie around the cable jacket inside the enclosure.
+    mesh.add_box(139, 68, BOTTOM, 5, 8, 8)
+    mesh.add_box(139, 84, BOTTOM, 5, 8, 8)
+    mesh.add_box(153, 68, BOTTOM, 5, 8, 8)
+    mesh.add_box(153, 84, BOTTOM, 5, 8, 8)
+    mesh.add_box(144, 70, 11, 9, 4, 3)
+    mesh.add_box(144, 86, 11, 9, 4, 3)
 
 
 def add_wall_mount_flange(mesh: Mesh) -> None:
@@ -240,10 +353,10 @@ def add_front_frames(mesh: Mesh) -> None:
 def build_lid() -> Mesh:
     mesh = Mesh()
     holes = [
-        Rect(7.5, 7.5, 5.0, 8.0),
-        Rect(OUTER_W - 12.5, 7.5, 5.0, 8.0),
-        Rect(7.5, OUTER_D - 15.5, 5.0, 8.0),
-        Rect(OUTER_W - 12.5, OUTER_D - 15.5, 5.0, 8.0),
+        Rect(8.6, 7.5, 2.8, 6.0),
+        Rect(OUTER_W - 11.4, 7.5, 2.8, 6.0),
+        Rect(8.6, OUTER_D - 13.5, 2.8, 6.0),
+        Rect(OUTER_W - 11.4, OUTER_D - 13.5, 2.8, 6.0),
     ]
     for index in range(7):
         holes.append(Rect(52, 18 + index * 7, 72, 3.0))
@@ -273,6 +386,37 @@ def build_mount_plate() -> Mesh:
     mesh.add_box(5, 9, 5, 4, 72, 4)
     mesh.add_box(131, 9, 5, 4, 72, 4)
     return mesh
+
+
+def add_m2_standoff_z(mesh: Mesh, cx: MM, cy: MM, z: MM, h: MM, outer: MM) -> None:
+    nut_height = min(M2_NUT_DEPTH, h)
+    if h > nut_height:
+        mesh.add_square_tube_z(cx, cy, z, outer=outer, inner=M2_NUT_POCKET, h=nut_height)
+        mesh.add_square_tube_z(
+            cx,
+            cy,
+            z + nut_height,
+            outer=outer,
+            inner=M2_CLEARANCE,
+            h=h - nut_height,
+        )
+    else:
+        mesh.add_square_tube_z(cx, cy, z, outer=outer, inner=M2_CLEARANCE, h=h)
+
+
+def add_m2_mount_y(mesh: Mesh, cx: MM, y: MM, cz: MM, d: MM, outer: MM) -> None:
+    nut_depth = min(M2_NUT_DEPTH, d)
+    screw_depth = max(0.0, d - nut_depth)
+    if screw_depth > 0:
+        mesh.add_square_tube_y(cx, y, cz, outer=outer, inner=M2_CLEARANCE, d=screw_depth)
+    mesh.add_square_tube_y(
+        cx,
+        y + screw_depth,
+        cz,
+        outer=outer,
+        inner=M2_NUT_POCKET,
+        d=nut_depth,
+    )
 
 
 def _split_axis(start: MM, end: MM, blocked_ranges: list[tuple[MM, MM]]) -> list[MM]:
