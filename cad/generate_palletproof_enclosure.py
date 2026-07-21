@@ -177,15 +177,16 @@ PI_HOLE_SPAN_Y = 49.0
 PI_HOLE_OFFSET = 3.5
 
 SCANNER_BOARD_X = 18.0
-SCANNER_BOARD_Z = 15.0
+SCANNER_BOARD_Y = WALL + 4.0
+SCANNER_BOARD_Z = 8.0
 SCANNER_BOARD_W = 44.45
-SCANNER_BOARD_H = 25.4
+SCANNER_BOARD_D = 25.4
 SCANNER_MOUNT_HOLES = (
-    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Z + 2.54),
-    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Z + 22.86),
+    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Y + 2.54),
+    (SCANNER_BOARD_X + 2.54, SCANNER_BOARD_Y + 22.86),
 )
 
-SCANNER_WINDOW = Rect(16.0, 12.0, 58.0, 36.0)
+SCANNER_WINDOW = Rect(14.0, 8.0, 64.0, 32.0)
 CAMERA_WINDOW = Rect(101.0, 15.0, 36.0, 36.0)
 USB_C_POWER_ENTRY = Rect(62.0, 12.0, 35.0, 18.0)
 SIDE_VENTS = tuple(Rect(18.0 + index * 8.0, 39.0, 4.0, 13.0) for index in range(8))
@@ -277,21 +278,36 @@ def add_pi_standoffs(mesh: Mesh) -> None:
 
 
 def add_scanner_cradle(mesh: Mesh) -> None:
-    # SparkFun SEN-18088 board is 44.45 x 25.4 mm. The two breakout standoff
-    # holes are on the rear side of the board and get M2 screw/nut mounts here.
-    mesh.add_box(SCANNER_BOARD_X - 3, WALL, SCANNER_BOARD_Z - 3, 4, 12, SCANNER_BOARD_H + 6)
-    mesh.add_box(SCANNER_BOARD_X + SCANNER_BOARD_W + 3, WALL, SCANNER_BOARD_Z - 3, 4, 12, SCANNER_BOARD_H + 6)
-    mesh.add_box(SCANNER_BOARD_X - 3, WALL, SCANNER_BOARD_Z - 3, SCANNER_BOARD_W + 10, 8, 3)
+    # The SEN-18088 scanner looks forward along the plane of the breakout board.
+    # The board therefore lies flat, with its front edge just behind the front
+    # window. The scan module does not protrude beyond the PCB.
+    for cx, cy in SCANNER_MOUNT_HOLES:
+        add_m2_standoff_z(mesh, cx, cy, BOTTOM, SCANNER_BOARD_Z - BOTTOM, outer=8.0)
+
     mesh.add_box(
         SCANNER_BOARD_X - 3,
-        WALL,
-        SCANNER_BOARD_Z + SCANNER_BOARD_H,
-        SCANNER_BOARD_W + 10,
-        8,
+        SCANNER_BOARD_Y - 3,
+        BOTTOM,
+        SCANNER_BOARD_W + 6,
+        3,
         3,
     )
-    for cx, cz in SCANNER_MOUNT_HOLES:
-        add_m2_mount_y(mesh, cx, WALL, cz, d=13.0, outer=8.0)
+    mesh.add_box(
+        SCANNER_BOARD_X - 3,
+        SCANNER_BOARD_Y + SCANNER_BOARD_D,
+        BOTTOM,
+        SCANNER_BOARD_W + 6,
+        3,
+        3,
+    )
+    mesh.add_box(
+        SCANNER_BOARD_X + SCANNER_BOARD_W + 1,
+        SCANNER_BOARD_Y - 3,
+        BOTTOM,
+        3,
+        SCANNER_BOARD_D + 6,
+        3,
+    )
 
 
 def add_camera_cradle(mesh: Mesh) -> None:
