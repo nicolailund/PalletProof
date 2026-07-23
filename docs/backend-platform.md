@@ -115,11 +115,13 @@ Default bør være 7-30 dages udløb og mulighed for manuel tilbagekaldelse.
 
 Første robuste model:
 
-- Enheden sender sin `software_version` i heartbeat.
-- Backend markerer om opdatering er påkrævet eller anbefalet.
-- Enheden henter kun signed release artifacts fra en kendt kilde.
-- Opdatering installeres atomisk med rollback: nuværende version bevares, indtil den nye service starter og sender OK-heartbeat.
-- Kritiske opdateringer kan rulles ud site-for-site.
+- Enheden sender sin `software_version` og sidste installerede `update_id` i heartbeat.
+- GitHub indeholder en update-manifest med `policy = force` eller `policy = night`.
+- `force` installeres så snart enheden er idle.
+- `night` installeres kun når enheden er idle i det konfigurerede nattevindue.
+- Enheden henter kun update-instruktioner fra en kendt URL.
+- Opdatering installeres med fast-forward, så lokale kodeændringer ikke overskrives tavst.
+- Når backend er klar, bør backend kunne overstyre rollout pr. site/enhed, så kritiske opdateringer kan rulles ud kontrolleret.
 
 Direkte `git pull` på produktionsenheder er enkelt, men ikke ideelt på sigt. Release artifacts med checksum/signatur giver bedre kontrol.
 

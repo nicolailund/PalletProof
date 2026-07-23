@@ -161,3 +161,23 @@ timeout_seconds = 30
 retry_seconds = 20
 delete_after_upload = false
 temp_suffix = ".part"
+
+[software_update]
+# Slå først til, når enheden er deployed via GitHub og scripts/install_from_github.sh
+# virker manuelt på Pi'en.
+enabled = false
+manifest_url = "https://raw.githubusercontent.com/nicolailund/PalletProof/main/updates/palletproof-update.json"
+repository_dir = "."
+state_file = "software_update_state.json"
+install_command = "bash scripts/install_from_github.sh"
+# Hvor ofte Pi'en henter manifestet fra GitHub.
+check_interval_seconds = 300.0
+request_timeout_seconds = 10.0
+install_timeout_seconds = 600.0
+# Enheden skal have været uden aktiv optagelse i mindst dette antal sekunder.
+idle_grace_seconds = 15.0
+# Hvis installationen fejler, ventes der før næste forsøg.
+apply_retry_seconds = 300.0
+# Night updates installeres kun i dette lokale tidsvindue.
+night_start_hour = 2
+night_end_hour = 4

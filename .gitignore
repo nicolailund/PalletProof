@@ -6,3 +6,6 @@ config.toml
 .pytest_cache/
 .run/
 debug/
+.env
+.env.*
+secrets/

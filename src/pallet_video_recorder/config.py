@@ -164,6 +164,22 @@ class UploadConfig:
 
 
 @dataclass(frozen=True)
+class SoftwareUpdateConfig:
+    enabled: bool = False
+    manifest_url: str = "https://raw.githubusercontent.com/nicolailund/PalletProof/main/updates/palletproof-update.json"
+    repository_dir: Path = Path(".")
+    state_file: Path = Path("software_update_state.json")
+    install_command: str = "bash scripts/install_from_github.sh"
+    check_interval_seconds: float = 300.0
+    request_timeout_seconds: float = 10.0
+    install_timeout_seconds: float = 600.0
+    idle_grace_seconds: float = 15.0
+    apply_retry_seconds: float = 300.0
+    night_start_hour: int = 2
+    night_end_hour: int = 4
+
+
+@dataclass(frozen=True)
 class Paths:
     root: Path
     in_progress: Path
@@ -199,6 +215,7 @@ class AppConfig:
     status_light: StatusLightConfig = field(default_factory=StatusLightConfig)
     preview: PreviewConfig = field(default_factory=PreviewConfig)
     upload: UploadConfig = field(default_factory=UploadConfig)
+    software_update: SoftwareUpdateConfig = field(default_factory=SoftwareUpdateConfig)
     paths: Paths = field(default_factory=lambda: Paths.from_root(Path("data")))
 
 
@@ -221,6 +238,7 @@ def load_config(path: Path) -> AppConfig:
         status_light=_build_status_light(raw.get("status_light", {})),
         preview=_build_preview(raw.get("preview", {})),
         upload=_dataclass_from_dict(UploadConfig, raw.get("upload", {})),
+        software_update=_build_software_update(raw.get("software_update", {})),
         paths=paths,
     )
 
@@ -340,6 +358,37 @@ def _build_preview(raw: dict[str, Any]) -> PreviewConfig:
         raise ValueError("preview.width cannot be negative")
     if not (1 <= config.jpeg_quality <= 100):
         raise ValueError("preview.jpeg_quality must be between 1 and 100")
+    return config
+
+
+def _build_software_update(raw: dict[str, Any]) -> SoftwareUpdateConfig:
+    values = dict(raw)
+    if "repository_dir" in values:
+        values["repository_dir"] = Path(values["repository_dir"])
+    if "state_file" in values:
+        values["state_file"] = Path(values["state_file"])
+
+    config = _dataclass_from_dict(SoftwareUpdateConfig, values)
+    if config.enabled and not config.manifest_url:
+        raise ValueError("software_update.manifest_url cannot be empty when updates are enabled")
+    if not config.install_command.strip():
+        raise ValueError("software_update.install_command cannot be empty")
+    if config.check_interval_seconds <= 0:
+        raise ValueError("software_update.check_interval_seconds must be positive")
+    if config.request_timeout_seconds <= 0:
+        raise ValueError("software_update.request_timeout_seconds must be positive")
+    if config.install_timeout_seconds <= 0:
+        raise ValueError("software_update.install_timeout_seconds must be positive")
+    if config.idle_grace_seconds < 0:
+        raise ValueError("software_update.idle_grace_seconds cannot be negative")
+    if config.apply_retry_seconds < 0:
+        raise ValueError("software_update.apply_retry_seconds cannot be negative")
+    if not (0 <= config.night_start_hour <= 23):
+        raise ValueError("software_update.night_start_hour must be between 0 and 23")
+    if not (0 <= config.night_end_hour <= 23):
+        raise ValueError("software_update.night_end_hour must be between 0 and 23")
+    if config.night_start_hour == config.night_end_hour:
+        raise ValueError("software_update night window cannot be zero hours")
     return config
 
 

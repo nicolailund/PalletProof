@@ -76,6 +76,20 @@ port = 8080
 max_fps = 5.0
 width = 960
 jpeg_quality = 70
+
+[software_update]
+enabled = true
+manifest_url = "https://raw.githubusercontent.com/nicolailund/PalletProof/main/updates/palletproof-update.json"
+repository_dir = "/home/palletcam/pallet-video"
+state_file = "updates/state.json"
+install_command = "bash scripts/install_from_github.sh"
+check_interval_seconds = 60.0
+request_timeout_seconds = 5.0
+install_timeout_seconds = 300.0
+idle_grace_seconds = 20.0
+apply_retry_seconds = 120.0
+night_start_hour = 1
+night_end_hour = 5
 """,
                 encoding="utf-8",
             )
@@ -131,6 +145,21 @@ jpeg_quality = 70
             self.assertEqual(config.preview.max_fps, 5.0)
             self.assertEqual(config.preview.width, 960)
             self.assertEqual(config.preview.jpeg_quality, 70)
+            self.assertTrue(config.software_update.enabled)
+            self.assertEqual(
+                config.software_update.manifest_url,
+                "https://raw.githubusercontent.com/nicolailund/PalletProof/main/updates/palletproof-update.json",
+            )
+            self.assertEqual(config.software_update.repository_dir, Path("/home/palletcam/pallet-video"))
+            self.assertEqual(config.software_update.state_file, Path("updates/state.json"))
+            self.assertEqual(config.software_update.install_command, "bash scripts/install_from_github.sh")
+            self.assertEqual(config.software_update.check_interval_seconds, 60.0)
+            self.assertEqual(config.software_update.request_timeout_seconds, 5.0)
+            self.assertEqual(config.software_update.install_timeout_seconds, 300.0)
+            self.assertEqual(config.software_update.idle_grace_seconds, 20.0)
+            self.assertEqual(config.software_update.apply_retry_seconds, 120.0)
+            self.assertEqual(config.software_update.night_start_hour, 1)
+            self.assertEqual(config.software_update.night_end_hour, 5)
 
 
 if __name__ == "__main__":

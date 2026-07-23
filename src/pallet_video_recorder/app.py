@@ -23,6 +23,7 @@ from .provisioning import (
 )
 from .scanner import BarcodeScanWorker
 from .sound import Beeper
+from .software_update import SoftwareUpdateWorker
 from .status_light import StatusLight
 from .uploader import UploadWorker
 
@@ -49,6 +50,7 @@ class PalletVideoApp:
         self.motion_detector = MotionDetector(config.motion)
         self.privacy_processor = PrivacyProcessor(config.privacy)
         self.preview_server = CameraPreviewServer(config.preview)
+        self.software_updater = SoftwareUpdateWorker(config.software_update, config.paths)
         self.beeper = Beeper(config.sound)
         self.status_light = StatusLight(config.status_light)
         self._last_scan_status_logged_at = 0.0
@@ -68,6 +70,7 @@ class PalletVideoApp:
             return
 
         self.upload_worker.start()
+        self.software_updater.start()
         self.preview_server.start()
         if self.config.barcode.enabled:
             self.barcode_scanner.start()
@@ -78,6 +81,7 @@ class PalletVideoApp:
         self.frame_source.start()
 
         active: ActiveRecording | None = None
+        idle_since = time.monotonic()
         frame_number = 0
 
         LOGGER.info("Ready for barcode scan on device serial %s", self.device_identity.serial_number)
@@ -94,11 +98,21 @@ class PalletVideoApp:
             self.preview_server.update_frame(frame)
 
             if active is None:
+                idle_seconds = time.monotonic() - idle_since
+                if self.software_updater.ready_to_apply(idle_seconds):
+                    self.hardware_scanner.disable_triggering()
+                    if self.software_updater.apply_pending():
+                        self.running = False
+                    else:
+                        self.hardware_scanner.enable_triggering()
+                    continue
+
                 self._log_scan_status(frame_number)
                 order_number = self._read_order_number(frame, frame_number)
                 if order_number:
                     self.hardware_scanner.disable_triggering()
                     active = self._start_recording(order_number)
+                    idle_since = 0.0
                     self.motion_detector.reset()
                 continue
 
@@ -117,6 +131,7 @@ class PalletVideoApp:
                 )
                 self._finish_recording(active)
                 active = None
+                idle_since = time.monotonic()
                 self.motion_detector.reset()
                 if self.config.barcode.enabled:
                     self.barcode_scanner.start_ambient_suppression()
@@ -135,6 +150,7 @@ class PalletVideoApp:
 
     def _close(self) -> None:
         self.upload_worker.stop()
+        self.software_updater.stop()
         self.preview_server.stop()
         self.hardware_scanner.disable_triggering()
         self.hardware_scanner.stop()

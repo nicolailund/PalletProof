@@ -300,6 +300,42 @@ sudo systemctl enable --now pallet-video
 sudo journalctl -u pallet-video -f
 ```
 
+## Software updates fra GitHub
+
+Pi'en kan poll'e en update-manifest i GitHub og installere ny kode, når enheden er idle. Flowet er slået fra som standard:
+
+```toml
+[software_update]
+enabled = true
+manifest_url = "https://raw.githubusercontent.com/nicolailund/PalletProof/main/updates/palletproof-update.json"
+repository_dir = "."
+install_command = "bash scripts/install_from_github.sh"
+night_start_hour = 2
+night_end_hour = 4
+```
+
+Når en GitHub-ændring skal rulles ud, ændres `updates/palletproof-update.json`:
+
+```json
+{
+  "schema_version": 1,
+  "update_id": "2026-07-23-scanner-fix-001",
+  "policy": "force",
+  "target_ref": "main",
+  "target_commit": "",
+  "version": "0.1.0"
+}
+```
+
+`policy` kan være:
+
+- `force`: installeres så snart enheden er idle og ikke optager video.
+- `night`: installeres kun når enheden er idle i nattevinduet, fx 02-04.
+
+Brug ikke Git force-push til dette. Det er en rollout-politik i manifestet, ikke en omskrivning af Git-historik. Hver rollout skal have et nyt `update_id`, ellers ignorerer enheden manifestet som allerede installeret.
+
+Installationsscriptet bruger `git merge --ff-only`, så det fejler i stedet for at overskrive lokale kodeændringer. `config.toml` bør derfor holdes udenfor Git på Pi'en, mens kildekoden holdes ren.
+
 ## Filnavne
 
 Videoer navngives sådan:
