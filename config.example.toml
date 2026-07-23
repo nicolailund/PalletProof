@@ -53,7 +53,7 @@ enabled = false
 scan_every_n_frames = 2
 min_chars = 4
 max_chars = 64
-# Tilpas til jeres ordrenumre. Eksemplet tillader bogstaver, tal og almindelige
+# Tilpas til jeres scannede ID'er. Eksemplet tillader bogstaver, tal og almindelige
 # Code 39/GS1-tegn som bindestreg, $, /, +, %, punktum, underscore og parenteser.
 accepted_pattern = "^[A-Za-z0-9_.()$/+%-]+$"
 # x, y, width, height for barcode-scan-zonen. Start bredt, og snævr ind hvis kameraet ser for meget støj.
@@ -160,7 +160,7 @@ jpeg_quality = 70
 
 [upload]
 enabled = true
-protocol = "sftp" # "sftp", "ftp" eller "ftps"
+protocol = "supabase" # "supabase", "sftp", "ftp" eller "ftps"
 host = "ftp.example.com"
 port = 22
 username = "user"
@@ -171,6 +171,8 @@ timeout_seconds = 30
 retry_seconds = 20
 delete_after_upload = false
 temp_suffix = ".part"
+supabase_bucket = "videos"
+supabase_prefix = "device-uploads"
 
 [software_update]
 # Slå først til, når enheden er deployed via GitHub og scripts/install_from_github.sh

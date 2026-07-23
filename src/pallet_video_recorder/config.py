@@ -171,6 +171,8 @@ class UploadConfig:
     retry_seconds: int = 20
     delete_after_upload: bool = False
     temp_suffix: str = ".part"
+    supabase_bucket: str = "videos"
+    supabase_prefix: str = "device-uploads"
 
 
 @dataclass(frozen=True)
@@ -249,7 +251,7 @@ def load_config(path: Path) -> AppConfig:
         sound=_dataclass_from_dict(SoundConfig, raw.get("sound", {})),
         status_light=_build_status_light(raw.get("status_light", {})),
         preview=_build_preview(raw.get("preview", {})),
-        upload=_dataclass_from_dict(UploadConfig, raw.get("upload", {})),
+        upload=_build_upload(raw.get("upload", {})),
         software_update=_build_software_update(raw.get("software_update", {})),
         paths=paths,
     )
@@ -389,6 +391,26 @@ def _build_preview(raw: dict[str, Any]) -> PreviewConfig:
     return config
 
 
+def _build_upload(raw: dict[str, Any]) -> UploadConfig:
+    config = _dataclass_from_dict(UploadConfig, raw)
+    if config.protocol.lower() not in {"ftp", "ftps", "sftp", "supabase"}:
+        raise ValueError("upload.protocol must be 'ftp', 'ftps', 'sftp' or 'supabase'")
+    if config.timeout_seconds <= 0:
+        raise ValueError("upload.timeout_seconds must be positive")
+    if config.retry_seconds <= 0:
+        raise ValueError("upload.retry_seconds must be positive")
+    if not config.temp_suffix:
+        raise ValueError("upload.temp_suffix cannot be empty")
+    if config.protocol.lower() == "supabase":
+        if not config.supabase_bucket.strip():
+            raise ValueError("upload.supabase_bucket cannot be empty for Supabase upload")
+        _validate_storage_path_part(config.supabase_bucket, "upload.supabase_bucket")
+        if config.supabase_prefix.strip():
+            for part in config.supabase_prefix.strip("/").split("/"):
+                _validate_storage_path_part(part, "upload.supabase_prefix")
+    return config
+
+
 def _build_software_update(raw: dict[str, Any]) -> SoftwareUpdateConfig:
     values = dict(raw)
     if "repository_dir" in values:
@@ -454,6 +476,11 @@ def _str_tuple(value: Any, name: str) -> tuple[str, ...]:
 def _validate_sysfs_token(value: str, name: str) -> None:
     if re.fullmatch(r"[A-Za-z0-9:_-]+", value) is None:
         raise ValueError(f"{name} may only contain letters, numbers, colon, underscore or dash")
+
+
+def _validate_storage_path_part(value: str, name: str) -> None:
+    if re.fullmatch(r"[A-Za-z0-9_.-]+", value) is None:
+        raise ValueError(f"{name} may only contain letters, numbers, dot, underscore or dash")
 
 
 def _dataclass_from_dict(cls: type[Any], values: dict[str, Any]) -> Any:

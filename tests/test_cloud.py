@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pallet_video_recorder.cloud import read_temperature_c
+from pallet_video_recorder.cloud import build_storage_path, read_temperature_c, sha256_file
 
 
 class CloudTest(unittest.TestCase):
@@ -24,6 +24,22 @@ class CloudTest(unittest.TestCase):
 
     def test_missing_temperature_is_optional(self) -> None:
         self.assertIsNone(read_temperature_c(Path("/definitely/missing/palletproof/temp")))
+
+    def test_builds_safe_storage_path(self) -> None:
+        self.assertEqual(
+            build_storage_path("device-uploads", "PP/000123", "REF/123_20260724_120000.mp4"),
+            "device-uploads/PP_000123/REF_123_20260724_120000.mp4",
+        )
+
+    def test_hashes_file_for_upload_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "video.mp4"
+            path.write_bytes(b"palletproof")
+
+            self.assertEqual(
+                sha256_file(path),
+                "8e6aced578464134a62f953604243aecb2724342fe8edef4c23757aea9894e20",
+            )
 
 
 if __name__ == "__main__":

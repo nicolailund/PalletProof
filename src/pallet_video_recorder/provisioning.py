@@ -11,6 +11,7 @@ from typing import Any
 
 PROVISIONING_PREFIX = "PALLETPROOF"
 PROVISIONING_VERSION = 1
+RESET_PAYLOAD_TYPE = "palletproof_reset"
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 
@@ -44,6 +45,12 @@ class ProvisioningPayload:
             activated_at=_format_datetime(activated),
             provisioning_version=self.version,
         )
+
+
+@dataclass(frozen=True)
+class ResetPayload:
+    serial_number: str
+    version: int = PROVISIONING_VERSION
 
 
 @dataclass(frozen=True)
@@ -122,6 +129,12 @@ class DeviceIdentityStore:
             pass
         temporary_path.replace(self.path)
 
+    def delete(self) -> None:
+        try:
+            self.path.unlink()
+        except FileNotFoundError:
+            pass
+
 
 def parse_provisioning_qr(
     raw_value: str,
@@ -178,9 +191,47 @@ def build_provisioning_qr(payload: dict[str, Any], *, prefix: str = PROVISIONING
     return f"{prefix}{PROVISIONING_VERSION}.{encoded}"
 
 
+def build_reset_qr(serial_number: str, *, prefix: str = PROVISIONING_PREFIX) -> str:
+    payload = {
+        "type": RESET_PAYLOAD_TYPE,
+        "version": PROVISIONING_VERSION,
+        "serial_number": normalize_identifier(serial_number, "serial_number"),
+    }
+    raw_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(raw_json).decode("ascii").rstrip("=")
+    return f"{prefix}RESET{PROVISIONING_VERSION}.{encoded}"
+
+
 def looks_like_provisioning_qr(raw_value: str, *, prefix: str = PROVISIONING_PREFIX) -> bool:
     value = raw_value.strip()
     return value.startswith(f"{prefix}{PROVISIONING_VERSION}.") or value.startswith(f"{prefix}:")
+
+
+def looks_like_reset_qr(raw_value: str, *, prefix: str = PROVISIONING_PREFIX) -> bool:
+    return raw_value.strip().startswith(f"{prefix}RESET{PROVISIONING_VERSION}.")
+
+
+def parse_reset_qr(raw_value: str, *, prefix: str = PROVISIONING_PREFIX) -> ResetPayload:
+    value = raw_value.strip()
+    if not looks_like_reset_qr(value, prefix=prefix):
+        raise ProvisioningError("Scanned value is not a PalletProof reset QR")
+
+    encoded = value.split(".", 1)[1]
+    padding = "=" * (-len(encoded) % 4)
+    try:
+        raw_json = base64.urlsafe_b64decode((encoded + padding).encode("ascii"))
+    except Exception as exc:
+        raise ProvisioningError("Reset QR contains invalid base64url data") from exc
+    data = _json_object(raw_json.decode("utf-8"))
+
+    version = int(data.get("version", PROVISIONING_VERSION))
+    if version != PROVISIONING_VERSION:
+        raise ProvisioningError(f"Unsupported reset QR version: {version}")
+    payload_type = str(data.get("type", ""))
+    if payload_type != RESET_PAYLOAD_TYPE:
+        raise ProvisioningError(f"Unsupported reset QR payload type: {payload_type!r}")
+
+    return ResetPayload(serial_number=normalize_identifier(_required_string(data, "serial_number"), "serial_number"))
 
 
 def normalize_identifier(value: str, name: str) -> str:

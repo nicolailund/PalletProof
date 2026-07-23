@@ -13,8 +13,12 @@ def sanitize_filename_part(value: str, name: str, max_length: int = 80) -> str:
     return sanitized[:max_length]
 
 
+def sanitize_scanned_id(scanned_id: str) -> str:
+    return sanitize_filename_part(scanned_id, "Scanned ID")
+
+
 def sanitize_order_number(order_number: str) -> str:
-    return sanitize_filename_part(order_number, "Order number")
+    return sanitize_scanned_id(order_number)
 
 
 def sanitize_serial_number(serial_number: str) -> str:
@@ -22,7 +26,7 @@ def sanitize_serial_number(serial_number: str) -> str:
 
 
 def build_video_name(
-    order_number: str,
+    scanned_id: str,
     extension: str,
     now: datetime | None = None,
     serial_number: str = "",
@@ -30,5 +34,5 @@ def build_video_name(
     timestamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
     ext = extension if extension.startswith(".") else f".{extension}"
     if serial_number:
-        return f"{sanitize_serial_number(serial_number)}_{sanitize_order_number(order_number)}_{timestamp}{ext}"
-    return f"{sanitize_order_number(order_number)}_{timestamp}{ext}"
+        return f"{sanitize_serial_number(serial_number)}_{sanitize_scanned_id(scanned_id)}_{timestamp}{ext}"
+    return f"{sanitize_scanned_id(scanned_id)}_{timestamp}{ext}"

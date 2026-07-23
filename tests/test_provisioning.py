@@ -10,8 +10,11 @@ from pallet_video_recorder.provisioning import (
     DeviceIdentityStore,
     ProvisioningError,
     build_provisioning_qr,
+    build_reset_qr,
     looks_like_provisioning_qr,
+    looks_like_reset_qr,
     parse_provisioning_qr,
+    parse_reset_qr,
 )
 
 
@@ -107,6 +110,28 @@ class ProvisioningTest(unittest.TestCase):
         assert loaded is not None
         self.assertEqual(loaded.serial_number, "PP-000127")
         self.assertEqual(loaded.wifi_ssid, "WarehouseWifi")
+
+    def test_parses_device_specific_reset_qr(self) -> None:
+        value = build_reset_qr("PP-000128")
+
+        payload = parse_reset_qr(value)
+
+        self.assertTrue(looks_like_reset_qr(value))
+        self.assertFalse(looks_like_provisioning_qr(value))
+        self.assertEqual(payload.serial_number, "PP-000128")
+
+    def test_rejects_provisioning_qr_as_reset_qr(self) -> None:
+        value = build_provisioning_qr(
+            {
+                "serial_number": "PP-000129",
+                "activation_token": "tok_129",
+                "wifi_ssid": "WarehouseWifi",
+                "wifi_password": "secret-password",
+            }
+        )
+
+        with self.assertRaises(ProvisioningError):
+            parse_reset_qr(value)
 
 
 if __name__ == "__main__":

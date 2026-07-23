@@ -6,6 +6,7 @@ from datetime import datetime
 from pallet_video_recorder.filenames import (
     build_video_name,
     sanitize_order_number,
+    sanitize_scanned_id,
     sanitize_serial_number,
 )
 
@@ -14,6 +15,9 @@ class FilenameTest(unittest.TestCase):
     def test_sanitize_order_number(self) -> None:
         self.assertEqual(sanitize_order_number(" ORD/123  "), "ORD_123")
         self.assertEqual(sanitize_order_number("(01)08584012360472"), "01_08584012360472")
+
+    def test_sanitize_scanned_id(self) -> None:
+        self.assertEqual(sanitize_scanned_id(" REF/ABC  "), "REF_ABC")
 
     def test_sanitize_serial_number(self) -> None:
         self.assertEqual(sanitize_serial_number(" PP/000123  "), "PP_000123")

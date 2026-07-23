@@ -85,6 +85,16 @@ max_fps = 5.0
 width = 960
 jpeg_quality = 70
 
+[upload]
+enabled = true
+protocol = "supabase"
+timeout_seconds = 30
+retry_seconds = 20
+delete_after_upload = false
+temp_suffix = ".part"
+supabase_bucket = "videos"
+supabase_prefix = "device-uploads"
+
 [software_update]
 enabled = true
 manifest_url = "https://raw.githubusercontent.com/nicolailund/PalletProof/main/updates/palletproof-update.json"
@@ -159,6 +169,9 @@ night_end_hour = 5
             self.assertEqual(config.preview.max_fps, 5.0)
             self.assertEqual(config.preview.width, 960)
             self.assertEqual(config.preview.jpeg_quality, 70)
+            self.assertEqual(config.upload.protocol, "supabase")
+            self.assertEqual(config.upload.supabase_bucket, "videos")
+            self.assertEqual(config.upload.supabase_prefix, "device-uploads")
             self.assertTrue(config.software_update.enabled)
             self.assertEqual(
                 config.software_update.manifest_url,

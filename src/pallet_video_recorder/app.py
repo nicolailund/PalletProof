@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import time
@@ -22,21 +23,23 @@ from .provisioning import (
     DeviceIdentityStore,
     ProvisioningError,
     looks_like_provisioning_qr,
+    parse_reset_qr,
     parse_provisioning_qr,
 )
 from .scanner import BarcodeScanWorker
 from .sound import Beeper
 from .software_update import SoftwareUpdateWorker
 from .status_light import StatusLight
-from .uploader import UploadWorker
+from .uploader import UploadWorker, sidecar_path
 
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
 class ActiveRecording:
-    order_number: str
+    scanned_id: str
     started_at: float
+    started_wall_time: datetime
     in_progress_path: Path
     final_name: str
     seen_motion: bool = False
@@ -47,14 +50,19 @@ class PalletVideoApp:
         self.config = config
         self.running = False
         self.frame_source: FrameSource | None = None
-        self.upload_worker = UploadWorker(config.upload, config.paths)
+        self.cloud_client = SupabaseDeviceClient(config.cloud, config.paths)
+        self.upload_worker = UploadWorker(
+            config.upload,
+            config.paths,
+            cloud_client=self.cloud_client,
+            identity_provider=lambda: self.device_identity,
+        )
         self.hardware_scanner = HardwareScannerWorker(config.hardware_scanner)
         self.barcode_scanner = BarcodeScanWorker(config.barcode)
         self.motion_detector = MotionDetector(config.motion)
         self.privacy_processor = PrivacyProcessor(config.privacy)
         self.preview_server = CameraPreviewServer(config.preview)
         self.software_updater = SoftwareUpdateWorker(config.software_update, config.paths)
-        self.cloud_client = SupabaseDeviceClient(config.cloud, config.paths)
         self.beeper = Beeper(config.sound)
         self.status_light = StatusLight(config.status_light)
         self._last_scan_status_logged_at = 0.0
@@ -116,10 +124,10 @@ class PalletVideoApp:
                     continue
 
                 self._log_scan_status(frame_number)
-                order_number = self._read_order_number(frame, frame_number)
-                if order_number:
+                scanned_id = self._read_scanned_id(frame, frame_number)
+                if scanned_id:
                     self.hardware_scanner.disable_triggering()
-                    active = self._start_recording(order_number)
+                    active = self._start_recording(scanned_id)
                     self._send_cloud_heartbeat("recording", force=True)
                     idle_since = 0.0
                     self.motion_detector.reset()
@@ -134,8 +142,8 @@ class PalletVideoApp:
             stop_reason = self._stop_reason(active, elapsed, sample.still_for_seconds)
             if stop_reason:
                 LOGGER.info(
-                    "Stopping recording for order %s after %.1fs: %s",
-                    active.order_number,
+                    "Stopping recording for scanned ID %s after %.1fs: %s",
+                    active.scanned_id,
                     elapsed,
                     stop_reason,
                 )
@@ -235,16 +243,18 @@ class PalletVideoApp:
 
         return None
 
-    def _read_order_number(self, frame: object, frame_number: int) -> str | None:
+    def _read_scanned_id(self, frame: object, frame_number: int) -> str | None:
         barcode = self.hardware_scanner.poll()
         if barcode:
+            if self._handle_reset_qr(barcode):
+                return None
             if looks_like_provisioning_qr(
                 barcode,
                 prefix=self.config.device.provisioning_qr_prefix,
             ):
                 LOGGER.warning("Ignoring provisioning QR scan after device is already provisioned")
                 return None
-            LOGGER.info("Read barcode/order number from hardware scanner: %s", barcode)
+            LOGGER.info("Read scanned ID from hardware scanner: %s", barcode)
             self.beeper.beep()
             self.status_light.scanned()
             return barcode
@@ -254,7 +264,15 @@ class PalletVideoApp:
 
         barcode = self.barcode_scanner.poll()
         if barcode:
-            LOGGER.info("Read barcode/order number from camera: %s", barcode)
+            if self._handle_reset_qr(barcode):
+                return None
+            if looks_like_provisioning_qr(
+                barcode,
+                prefix=self.config.device.provisioning_qr_prefix,
+            ):
+                LOGGER.warning("Ignoring provisioning QR scan after device is already provisioned")
+                return None
+            LOGGER.info("Read scanned ID from camera: %s", barcode)
             self.beeper.beep()
             self.status_light.scanned()
             return barcode
@@ -300,22 +318,23 @@ class PalletVideoApp:
             safe_scan_value(stats.last_result),
         )
 
-    def _start_recording(self, order_number: str) -> ActiveRecording:
+    def _start_recording(self, scanned_id: str) -> ActiveRecording:
         assert self.device_identity is not None
         final_name = build_video_name(
-            order_number,
+            scanned_id,
             self.config.recording.file_extension,
             serial_number=self.device_identity.serial_number,
         )
         in_progress_path = self.config.paths.in_progress / final_name
-        LOGGER.info("Starting recording for order %s to %s", order_number, in_progress_path)
+        LOGGER.info("Starting recording for scanned ID %s to %s", scanned_id, in_progress_path)
 
         assert self.frame_source is not None
         self.frame_source.start_recording(in_progress_path)
         self.status_light.recording()
         return ActiveRecording(
-            order_number=order_number,
+            scanned_id=scanned_id,
             started_at=time.monotonic(),
+            started_wall_time=datetime.now(timezone.utc),
             in_progress_path=in_progress_path,
             final_name=final_name,
         )
@@ -368,6 +387,7 @@ class PalletVideoApp:
         if source_for_upload.parent != self.config.paths.pending:
             shutil.move(str(source_for_upload), str(pending_path))
 
+        self._write_video_sidecar(active, pending_path)
         self.upload_worker.wake()
 
     def _identity_path(self) -> Path:
@@ -416,8 +436,59 @@ class PalletVideoApp:
             return ""
         return str(state.get("applied_update_id", ""))
 
+    def _write_video_sidecar(self, active: ActiveRecording, pending_path: Path) -> None:
+        ended_at = datetime.now(timezone.utc)
+        metadata = {
+            "schema_version": 1,
+            "scanned_id": active.scanned_id,
+            "filename": pending_path.name,
+            "started_at": _format_datetime(active.started_wall_time),
+            "ended_at": _format_datetime(ended_at),
+            "duration_seconds": round(time.monotonic() - active.started_at, 2),
+            "privacy_enabled": self.config.privacy.enabled,
+        }
+        path = sidecar_path(pending_path)
+        with path.open("w", encoding="utf-8") as handle:
+            json.dump(metadata, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+
+    def _handle_reset_qr(self, raw_value: str) -> bool:
+        assert self.device_identity is not None
+        try:
+            payload = parse_reset_qr(raw_value, prefix=self.config.device.provisioning_qr_prefix)
+        except ProvisioningError:
+            return False
+
+        if payload.serial_number != self.device_identity.serial_number:
+            LOGGER.warning(
+                "Ignoring reset QR for serial %s on device %s",
+                payload.serial_number,
+                self.device_identity.serial_number,
+            )
+            return True
+
+        LOGGER.warning("Reset QR accepted for device serial %s; deleting local identity", self.device_identity.serial_number)
+        self.cloud_client.device_event(
+            self.device_identity,
+            event_type="device_reset_requested",
+            severity="warning",
+            message="Device reset QR scanned; local identity will be removed",
+            metadata={"serial_number": self.device_identity.serial_number},
+        )
+        self.identity_store.delete()
+        self._cloud_activation_confirmed = False
+        self.device_identity = None
+        self.running = False
+        self.status_light.scanned()
+        self.beeper.beep()
+        return True
+
 
 def _seconds_text(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:.1f}s"
+
+
+def _format_datetime(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

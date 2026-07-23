@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "update_id": "2026-07-23-initial-night",
-  "policy": "night",
+  "update_id": "2026-07-24-supabase-upload-reset-qr",
+  "policy": "force",
   "target_ref": "main",
   "target_commit": "",
-  "version": "0.1.0",
-  "created_at": "2026-07-23T00:00:00+02:00",
-  "description": "Initial PalletProof update manifest. Change update_id and policy for future rollouts."
+  "version": "0.2.0",
+  "created_at": "2026-07-24T00:00:00+02:00",
+  "description": "Supabase Storage upload, scanned ID naming, reset QR and historical video device snapshots."
 }

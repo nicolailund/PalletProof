@@ -116,8 +116,11 @@ function App() {
   const [provisionDevice, setProvisionDevice] = useState<Device | null>(null);
   const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm);
   const [deleteDevice, setDeleteDevice] = useState<Device | null>(null);
+  const [resetDevice, setResetDevice] = useState<Device | null>(null);
   const [qrValue, setQrValue] = useState("");
   const [qrImage, setQrImage] = useState("");
+  const [resetQrValue, setResetQrValue] = useState("");
+  const [resetQrImage, setResetQrImage] = useState("");
   const [rolloutForm, setRolloutForm] = useState<RolloutForm>(emptyRolloutForm);
   const [shareResult, setShareResult] = useState<ShareResult | null>(null);
   const [search, setSearch] = useState("");
@@ -168,7 +171,7 @@ function App() {
     if (!needle) {
       return true;
     }
-    return `${video.order_number} ${video.filename} ${relationLabel(video.devices, "serial_number")}`
+    return `${video.scanned_id} ${video.filename} ${video.device_serial_number} ${videoDeviceLabel(video)}`
       .toLowerCase()
       .includes(needle);
   });
@@ -440,7 +443,7 @@ function App() {
         token,
         url: `${window.location.origin}/share/${token}`,
       });
-      setNotice(`Share-token oprettet for ${video.order_number}.`);
+      setNotice(`Share-token oprettet for ${video.scanned_id}.`);
     } catch (caught) {
       setError(errorMessage(caught));
     }
@@ -469,6 +472,29 @@ function App() {
     setQrValue("");
     setQrImage("");
     setError("");
+  }
+
+  async function openResetQr(device: Device) {
+    try {
+      const payload = {
+        type: "palletproof_reset",
+        version: 1,
+        serial_number: device.serial_number,
+      };
+      const qrText = `PALLETPROOFRESET1.${base64UrlJson(payload)}`;
+      const qrDataUrl = await QRCode.toDataURL(qrText, {
+        width: 340,
+        margin: 2,
+        errorCorrectionLevel: "M",
+      });
+      setResetDevice(device);
+      setResetQrValue(qrText);
+      setResetQrImage(qrDataUrl);
+      setNotice(`Reset-QR klar for ${device.serial_number}.`);
+      setError("");
+    } catch (caught) {
+      setError(errorMessage(caught));
+    }
   }
 
   if (!isSupabaseConfigured) {
@@ -611,6 +637,7 @@ function App() {
                 setDeviceForm={setDeviceForm}
                 onAddDevice={handleAddDevice}
                 onProvision={openProvisioning}
+                onResetQr={(device) => void openResetQr(device)}
                 onDeleteDevice={(device) => {
                   setDeleteDevice(device);
                   setError("");
@@ -658,6 +685,15 @@ function App() {
           device={deleteDevice}
           onCancel={() => setDeleteDevice(null)}
           onConfirm={() => void handleDeleteDevice(deleteDevice)}
+        />
+      )}
+
+      {resetDevice && (
+        <ResetQrModal
+          device={resetDevice}
+          qrImage={resetQrImage}
+          qrValue={resetQrValue}
+          onClose={() => setResetDevice(null)}
         />
       )}
     </main>
@@ -737,8 +773,8 @@ function Overview({
             <div key={video.id} className="compact-row">
               <Film size={16} />
               <div>
-                <strong>{video.order_number}</strong>
-                <span>{relationLabel(video.devices, "serial_number") || video.filename}</span>
+                <strong>{video.scanned_id}</strong>
+                <span>{videoDeviceLabel(video) || video.filename}</span>
               </div>
               <Badge tone={video.status === "failed" ? "danger" : "neutral"}>{video.status}</Badge>
             </div>
@@ -757,6 +793,7 @@ function DevicesView({
   setDeviceForm,
   onAddDevice,
   onProvision,
+  onResetQr,
   onDeleteDevice,
 }: {
   devices: Device[];
@@ -765,6 +802,7 @@ function DevicesView({
   setDeviceForm: (form: DeviceForm) => void;
   onAddDevice: (event: FormEvent) => void;
   onProvision: (device: Device) => void;
+  onResetQr: (device: Device) => void;
   onDeleteDevice: (device: Device) => void;
 }) {
   return (
@@ -847,6 +885,10 @@ function DevicesView({
                       <QrCode size={16} />
                       QR
                     </button>
+                    <button className="icon-text-button" onClick={() => onResetQr(device)}>
+                      <RefreshCcw size={16} />
+                      Reset
+                    </button>
                     <button className="icon-button danger" onClick={() => onDeleteDevice(device)} aria-label={`Slet ${device.serial_number}`}>
                       <Trash2 size={16} />
                     </button>
@@ -888,11 +930,11 @@ function VideosView({
       <div className="panel-heading">
         <div>
           <h2>Videoer</h2>
-          <p>Find optagelser efter ordre, fil eller enhed</p>
+          <p>Find optagelser efter scanned ID, fil eller enhed</p>
         </div>
         <label className="search-box">
           <Search size={16} />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Søg ordre eller enhed" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Søg scanned ID eller enhed" />
         </label>
       </div>
 
@@ -916,7 +958,7 @@ function VideosView({
         <table>
           <thead>
             <tr>
-              <th>Ordre</th>
+              <th>Scanned ID</th>
               <th>Enhed</th>
               <th>Status</th>
               <th>Privatliv</th>
@@ -928,10 +970,10 @@ function VideosView({
             {videos.map((video) => (
               <tr key={video.id}>
                 <td>
-                  <strong>{video.order_number}</strong>
+                  <strong>{video.scanned_id}</strong>
                   <span>{video.filename}</span>
                 </td>
-                <td>{relationLabel(video.devices, "display_name") || relationLabel(video.devices, "serial_number") || "-"}</td>
+                <td>{videoDeviceLabel(video) || "-"}</td>
                 <td>
                   <Badge tone={video.status === "failed" ? "danger" : "neutral"}>{video.status}</Badge>
                 </td>
@@ -1143,6 +1185,53 @@ function ProvisioningModal({
   );
 }
 
+function ResetQrModal({
+  device,
+  qrImage,
+  qrValue,
+  onClose,
+}: {
+  device: Device;
+  qrImage: string;
+  qrValue: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Reset QR">
+        <div className="panel-heading">
+          <div>
+            <h2>Reset-QR</h2>
+            <p>{device.serial_number}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <p className="modal-copy">
+          Scanner enheden denne QR-kode, fjernes den lokale provisioning på Pi'en. Historiske videoer bliver liggende på det site,
+          hvor de blev optaget.
+        </p>
+        {qrImage && (
+          <div className="qr-result">
+            <img src={qrImage} alt="Reset QR" />
+            <div className="qr-actions">
+              <button className="secondary-button" onClick={() => void copyText(qrValue)}>
+                <Copy size={16} />
+                Kopiér QR-data
+              </button>
+              <a className="secondary-button" href={qrImage} download={`${device.serial_number}-reset.png`}>
+                <QrCode size={16} />
+                Download PNG
+              </a>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function DeleteDeviceModal({
   device,
   onCancel,
@@ -1303,6 +1392,15 @@ function relationLabel<T extends Record<string, unknown>>(value: T | T[] | null 
   const row = firstRelation(value);
   const label = row?.[key];
   return typeof label === "string" ? label : "";
+}
+
+function videoDeviceLabel(video: Video): string {
+  return (
+    video.device_display_name ||
+    video.device_serial_number ||
+    relationLabel(video.devices, "display_name") ||
+    relationLabel(video.devices, "serial_number")
+  );
 }
 
 function uniqueOrganizations(memberships: Membership[]): Organization[] {

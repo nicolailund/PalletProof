@@ -53,8 +53,10 @@ export type Video = {
   id: string;
   organization_id: string;
   site_id: string;
-  device_id: string;
-  order_number: string;
+  device_id: string | null;
+  scanned_id: string;
+  device_serial_number: string;
+  device_display_name: string;
   filename: string;
   storage_bucket: string;
   storage_path: string;

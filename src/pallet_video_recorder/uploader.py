@@ -1,22 +1,34 @@
 from __future__ import annotations
 
 import ftplib
+import json
 import logging
 import posixpath
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
+from .cloud import SupabaseDeviceClient, build_storage_path
 from .config import Paths, UploadConfig
+from .provisioning import DeviceIdentity
 
 LOGGER = logging.getLogger(__name__)
 
 
 class UploadWorker:
-    def __init__(self, config: UploadConfig, paths: Paths) -> None:
+    def __init__(
+        self,
+        config: UploadConfig,
+        paths: Paths,
+        cloud_client: SupabaseDeviceClient | None = None,
+        identity_provider: Callable[[], DeviceIdentity | None] | None = None,
+    ) -> None:
         self.config = config
         self.paths = paths
+        self.cloud_client = cloud_client
+        self.identity_provider = identity_provider or (lambda: None)
         self.stop_event = threading.Event()
         self.wake_event = threading.Event()
         self.thread: threading.Thread | None = None
@@ -48,7 +60,7 @@ class UploadWorker:
         for path in sorted(self.paths.pending.iterdir()):
             if self.stop_event.is_set():
                 return
-            if not path.is_file() or path.name.endswith(self.config.temp_suffix):
+            if not path.is_file() or path.name.endswith(self.config.temp_suffix) or path.name.endswith(".json"):
                 continue
             try:
                 self._upload_file(path)
@@ -57,6 +69,10 @@ class UploadWorker:
                 LOGGER.exception("Upload failed for %s; will retry", path)
 
     def _upload_file(self, path: Path) -> None:
+        if self.config.protocol.lower() == "supabase":
+            self._upload_file_supabase(path)
+            return
+
         if not self.config.host:
             raise RuntimeError("Upload host is not configured")
 
@@ -65,6 +81,38 @@ class UploadWorker:
             return
 
         self._upload_file_ftp(path)
+
+    def _upload_file_supabase(self, path: Path) -> None:
+        if self.cloud_client is None:
+            raise RuntimeError("Supabase upload requires a cloud client")
+        identity = self.identity_provider()
+        if identity is None:
+            raise RuntimeError("Supabase upload requires a provisioned device identity")
+
+        sidecar = load_video_sidecar(path)
+        scanned_id = str(
+            sidecar.get("scanned_id")
+            or sidecar.get("order_number")
+            or _guess_scanned_id(path.name, identity.serial_number)
+        )
+        storage_path = build_storage_path(self.config.supabase_prefix, identity.serial_number, path.name)
+        LOGGER.info("Uploading %s to Supabase Storage %s/%s", path.name, self.config.supabase_bucket, storage_path)
+        result = self.cloud_client.upload_video_file(
+            identity,
+            path,
+            bucket=self.config.supabase_bucket,
+            storage_path=storage_path,
+            scanned_id=scanned_id,
+            started_at=str(sidecar.get("started_at") or ""),
+            ended_at=str(sidecar.get("ended_at") or ""),
+            duration_seconds=_optional_float(sidecar.get("duration_seconds")),
+            metadata={
+                "upload_protocol": "supabase",
+                "source_filename": path.name,
+            },
+        )
+        if not result.ok:
+            raise RuntimeError(result.message or "Supabase upload failed")
 
     def _upload_file_ftp(self, path: Path) -> None:
         LOGGER.info("Uploading %s to %s://%s%s", path.name, self.config.protocol, self.config.host, self.config.remote_dir)
@@ -157,13 +205,53 @@ class UploadWorker:
 
     def _after_success(self, path: Path) -> None:
         LOGGER.info("Upload succeeded for %s", path.name)
+        sidecar = sidecar_path(path)
         if self.config.delete_after_upload:
             path.unlink()
+            if sidecar.exists():
+                sidecar.unlink()
         else:
             shutil.move(str(path), str(self.paths.uploaded / path.name))
+            if sidecar.exists():
+                shutil.move(str(sidecar), str(self.paths.uploaded / sidecar.name))
 
 
 def _remote_path(remote_dir: str, filename: str) -> str:
     if not remote_dir or remote_dir == ".":
         return filename
     return posixpath.join(remote_dir, filename)
+
+
+def sidecar_path(path: Path) -> Path:
+    return path.with_name(f"{path.name}.json")
+
+
+def load_video_sidecar(path: Path) -> dict[str, object]:
+    sidecar = sidecar_path(path)
+    if not sidecar.exists():
+        return {}
+    with sidecar.open("r", encoding="utf-8") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise ValueError(f"Video sidecar is not a JSON object: {sidecar}")
+    return value
+
+
+def _optional_float(value: object) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _guess_scanned_id(filename: str, serial_number: str) -> str:
+    stem = Path(filename).stem
+    prefix = f"{serial_number}_"
+    if stem.startswith(prefix):
+        stem = stem[len(prefix) :]
+    parts = stem.rsplit("_", 2)
+    if len(parts) == 3 and parts[-2].isdigit() and parts[-1].isdigit():
+        return parts[0]
+    return stem
