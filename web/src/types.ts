@@ -21,6 +21,18 @@ export type Membership = {
   sites?: Site | Site[] | null;
 };
 
+export type CurrentMembershipRow = {
+  membership_id: string;
+  organization_id: string;
+  organization_name: string;
+  organization_slug: string;
+  site_id: string | null;
+  site_name: string | null;
+  site_slug: string | null;
+  site_timezone: string | null;
+  role: "owner" | "admin" | "site_admin" | "viewer";
+};
+
 export type Device = {
   id: string;
   organization_id: string;

@@ -22,7 +22,7 @@ import {
   Zap,
 } from "lucide-react";
 import { isSupabaseConfigured, requireSupabase, supabaseUrl } from "./supabase";
-import type { Device, DeviceEvent, Membership, Organization, Site, SoftwareRollout, Video } from "./types";
+import type { CurrentMembershipRow, Device, DeviceEvent, Membership, Organization, Site, SoftwareRollout, Video } from "./types";
 
 type Tab = "overview" | "devices" | "videos" | "updates";
 
@@ -183,16 +183,13 @@ function App() {
     setError("");
 
     try {
-      const { data: membershipData, error: membershipError } = await client
-        .from("memberships")
-        .select("id, organization_id, site_id, role, organizations(id, name, slug), sites(id, organization_id, name, slug, timezone)")
-        .order("created_at", { ascending: true });
+      const { data: membershipData, error: membershipError } = await client.rpc("current_memberships");
 
       if (membershipError) {
         throw membershipError;
       }
 
-      const nextMemberships = (membershipData ?? []) as Membership[];
+      const nextMemberships = currentMembershipRowsToMemberships((membershipData ?? []) as CurrentMembershipRow[]);
       setMemberships(nextMemberships);
 
       const orgList = uniqueOrganizations(nextMemberships);
@@ -565,7 +562,10 @@ function App() {
         {loading && <div className="loading-line" />}
 
         {memberships.length === 0 ? (
-          <EmptyState title="Ingen adgang endnu" text="Din Supabase-bruger findes, men har ingen membership i PalletProof." />
+          <EmptyState
+            title="Ingen adgang endnu"
+            text={`Logget ind som ${session.user.email ?? session.user.id}. User ID: ${session.user.id}`}
+          />
         ) : (
           <>
             {tab === "overview" && (
@@ -1204,6 +1204,29 @@ function uniqueOrganizations(memberships: Membership[]): Organization[] {
     }
   }
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function currentMembershipRowsToMemberships(rows: CurrentMembershipRow[]): Membership[] {
+  return rows.map((row) => ({
+    id: row.membership_id,
+    organization_id: row.organization_id,
+    site_id: row.site_id,
+    role: row.role,
+    organizations: {
+      id: row.organization_id,
+      name: row.organization_name,
+      slug: row.organization_slug,
+    },
+    sites: row.site_id
+      ? {
+          id: row.site_id,
+          organization_id: row.organization_id,
+          name: row.site_name ?? "",
+          slug: row.site_slug ?? "",
+          timezone: row.site_timezone ?? "Europe/Copenhagen",
+        }
+      : null,
+  }));
 }
 
 function relativeTime(value: string) {
