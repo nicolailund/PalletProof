@@ -106,6 +106,16 @@ identity_file = "device_identity.json"
 serial_number = "UNPROVISIONED"
 provisioning_qr_prefix = "PALLETPROOF"
 
+[cloud]
+# Sender provisioning-status, heartbeat, temperatur og upload-koe til Supabase.
+# supabase_anon_key er Supabase "anon public" key. Den er ikke en service-role key.
+enabled = false
+supabase_url = "https://aybniokguhhvudwkewbe.supabase.co"
+supabase_anon_key = ""
+heartbeat_interval_seconds = 60.0
+request_timeout_seconds = 10.0
+temperature_file = "/sys/class/thermal/thermal_zone0/temp"
+
 [privacy]
 enabled = false
 face_blur = true

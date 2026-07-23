@@ -7,10 +7,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import __version__
 from .camera import FrameSource, build_frame_source
+from .cloud import SupabaseDeviceClient
 from .config import AppConfig
 from .filenames import build_video_name
 from .hardware_scanner import HardwareScannerWorker
+from .log_safety import safe_scan_value
 from .motion import MotionDetector
 from .privacy import PrivacyProcessor
 from .preview import CameraPreviewServer
@@ -51,9 +54,12 @@ class PalletVideoApp:
         self.privacy_processor = PrivacyProcessor(config.privacy)
         self.preview_server = CameraPreviewServer(config.preview)
         self.software_updater = SoftwareUpdateWorker(config.software_update, config.paths)
+        self.cloud_client = SupabaseDeviceClient(config.cloud, config.paths)
         self.beeper = Beeper(config.sound)
         self.status_light = StatusLight(config.status_light)
         self._last_scan_status_logged_at = 0.0
+        self._last_heartbeat_at = 0.0
+        self._cloud_activation_confirmed = False
         self.identity_store = DeviceIdentityStore(self._identity_path())
         self.device_identity: DeviceIdentity | None = None
 
@@ -86,6 +92,7 @@ class PalletVideoApp:
 
         LOGGER.info("Ready for barcode scan on device serial %s", self.device_identity.serial_number)
         self.status_light.idle()
+        self._send_cloud_heartbeat("online", force=True)
         self.hardware_scanner.enable_triggering()
         while self.running:
             frame = self.frame_source.capture_preview()
@@ -98,6 +105,7 @@ class PalletVideoApp:
             self.preview_server.update_frame(frame)
 
             if active is None:
+                self._send_cloud_heartbeat("online")
                 idle_seconds = time.monotonic() - idle_since
                 if self.software_updater.ready_to_apply(idle_seconds):
                     self.hardware_scanner.disable_triggering()
@@ -112,10 +120,12 @@ class PalletVideoApp:
                 if order_number:
                     self.hardware_scanner.disable_triggering()
                     active = self._start_recording(order_number)
+                    self._send_cloud_heartbeat("recording", force=True)
                     idle_since = 0.0
                     self.motion_detector.reset()
                 continue
 
+            self._send_cloud_heartbeat("recording")
             sample = self.motion_detector.update(frame)
             if sample.moving:
                 active.seen_motion = True
@@ -137,6 +147,7 @@ class PalletVideoApp:
                     self.barcode_scanner.start_ambient_suppression()
                 LOGGER.info("Ready for next barcode scan")
                 self.status_light.idle()
+                self._send_cloud_heartbeat("online", force=True)
                 self.hardware_scanner.enable_triggering()
 
         if active is not None:
@@ -219,6 +230,7 @@ class PalletVideoApp:
                 identity.wifi_ssid or "-",
                 identity.api_base_url or "-",
             )
+            self._activate_cloud_identity(identity)
             return identity
 
         return None
@@ -267,7 +279,7 @@ class PalletVideoApp:
                 hardware_stats.device or "-",
                 hardware_stats.read_count,
                 hardware_stats.queued_results,
-                hardware_stats.last_result or "-",
+                safe_scan_value(hardware_stats.last_result),
             )
             return
 
@@ -285,7 +297,7 @@ class PalletVideoApp:
             _seconds_text(stats.current_elapsed_seconds),
             _seconds_text(stats.last_duration_seconds),
             stats.queued_results,
-            stats.last_result or "-",
+            safe_scan_value(stats.last_result),
         )
 
     def _start_recording(self, order_number: str) -> ActiveRecording:
@@ -363,6 +375,46 @@ class PalletVideoApp:
         if path.is_absolute():
             return path
         return self.config.paths.root / path
+
+    def _send_cloud_heartbeat(self, status: str, *, force: bool = False) -> None:
+        if self.device_identity is None:
+            return
+        now = time.monotonic()
+        if not force and now - self._last_heartbeat_at < self.config.cloud.heartbeat_interval_seconds:
+            return
+        self._last_heartbeat_at = now
+
+        if not self._cloud_activation_confirmed:
+            self._activate_cloud_identity(self.device_identity)
+            if not self._cloud_activation_confirmed:
+                return
+
+        result = self.cloud_client.heartbeat(
+            self.device_identity,
+            status=status,
+            software_version=__version__,
+            last_update_id=self._last_applied_update_id(),
+            metadata=self.cloud_client.build_metadata(),
+        )
+        if result.ok:
+            LOGGER.info("Device heartbeat sent status=%s", status)
+
+    def _activate_cloud_identity(self, identity: DeviceIdentity) -> None:
+        result = self.cloud_client.activate(
+            identity,
+            software_version=__version__,
+            metadata=self.cloud_client.build_metadata(),
+        )
+        if result.ok:
+            self._cloud_activation_confirmed = True
+            LOGGER.info("Device activation confirmed by Supabase")
+
+    def _last_applied_update_id(self) -> str:
+        try:
+            state = self.software_updater.state_store.load()
+        except Exception:
+            return ""
+        return str(state.get("applied_update_id", ""))
 
 
 def _seconds_text(value: float | None) -> str:

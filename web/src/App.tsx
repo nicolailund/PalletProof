@@ -6,6 +6,8 @@ import {
   Boxes,
   Check,
   Copy,
+  Eye,
+  EyeOff,
   ExternalLink,
   Film,
   KeyRound,
@@ -17,6 +19,7 @@ import {
   Search,
   Share2,
   ShieldCheck,
+  Trash2,
   UploadCloud,
   Wifi,
   Zap,
@@ -112,6 +115,7 @@ function App() {
   const [deviceForm, setDeviceForm] = useState<DeviceForm>(emptyDeviceForm);
   const [provisionDevice, setProvisionDevice] = useState<Device | null>(null);
   const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm);
+  const [deleteDevice, setDeleteDevice] = useState<Device | null>(null);
   const [qrValue, setQrValue] = useState("");
   const [qrImage, setQrImage] = useState("");
   const [rolloutForm, setRolloutForm] = useState<RolloutForm>(emptyRolloutForm);
@@ -442,6 +446,23 @@ function App() {
     }
   }
 
+  async function handleDeleteDevice(device: Device) {
+    const label = device.display_name || device.serial_number;
+    try {
+      const client = requireSupabase();
+      const { error: deleteError } = await client.from("devices").delete().eq("id", device.id);
+      if (deleteError) {
+        throw deleteError;
+      }
+      setDevices((current) => current.filter((candidate) => candidate.id !== device.id));
+      setDeleteDevice(null);
+      setNotice(`Enhed ${label} er slettet.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Enheden kunne ikke slettes: ${errorMessage(caught)}`);
+    }
+  }
+
   function openProvisioning(device: Device) {
     setProvisionDevice(device);
     setProvisionForm(emptyProvisionForm);
@@ -590,6 +611,10 @@ function App() {
                 setDeviceForm={setDeviceForm}
                 onAddDevice={handleAddDevice}
                 onProvision={openProvisioning}
+                onDeleteDevice={(device) => {
+                  setDeleteDevice(device);
+                  setError("");
+                }}
               />
             )}
 
@@ -625,6 +650,14 @@ function App() {
           qrValue={qrValue}
           onSubmit={handleGenerateProvisioningQr}
           onClose={() => setProvisionDevice(null)}
+        />
+      )}
+
+      {deleteDevice && (
+        <DeleteDeviceModal
+          device={deleteDevice}
+          onCancel={() => setDeleteDevice(null)}
+          onConfirm={() => void handleDeleteDevice(deleteDevice)}
         />
       )}
     </main>
@@ -724,6 +757,7 @@ function DevicesView({
   setDeviceForm,
   onAddDevice,
   onProvision,
+  onDeleteDevice,
 }: {
   devices: Device[];
   sites: Site[];
@@ -731,6 +765,7 @@ function DevicesView({
   setDeviceForm: (form: DeviceForm) => void;
   onAddDevice: (event: FormEvent) => void;
   onProvision: (device: Device) => void;
+  onDeleteDevice: (device: Device) => void;
 }) {
   return (
     <div className="content-grid">
@@ -789,6 +824,7 @@ function DevicesView({
                 <th>Enhed</th>
                 <th>Status</th>
                 <th>Software</th>
+                <th>Temperatur</th>
                 <th>Heartbeat</th>
                 <th />
               </tr>
@@ -804,18 +840,22 @@ function DevicesView({
                     <Badge tone={statusClass[device.status]}>{statusLabel[device.status]}</Badge>
                   </td>
                   <td>{device.software_version || "-"}</td>
+                  <td>{formatTemperature(device.metadata?.temperature_c)}</td>
                   <td>{device.last_heartbeat_at ? relativeTime(device.last_heartbeat_at) : "Aldrig"}</td>
                   <td className="row-actions">
                     <button className="icon-text-button" onClick={() => onProvision(device)}>
                       <QrCode size={16} />
                       QR
                     </button>
+                    <button className="icon-button danger" onClick={() => onDeleteDevice(device)} aria-label={`Slet ${device.serial_number}`}>
+                      <Trash2 size={16} />
+                    </button>
                   </td>
                 </tr>
               ))}
               {devices.length === 0 && (
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     <EmptyState title="Ingen enheder" text="Opret første enhed i formularen til venstre." />
                   </td>
                 </tr>
@@ -1031,6 +1071,8 @@ function ProvisioningModal({
   onSubmit: (event: FormEvent) => void;
   onClose: () => void;
 }) {
+  const [showWifiPassword, setShowWifiPassword] = useState(false);
+
   return (
     <div className="modal-backdrop" role="presentation">
       <section className="modal" role="dialog" aria-modal="true" aria-label="Provisioning QR">
@@ -1050,11 +1092,21 @@ function ProvisioningModal({
           </label>
           <label>
             WiFi password
-            <input
-              type="password"
-              value={form.wifiPassword}
-              onChange={(event) => setForm({ ...form, wifiPassword: event.target.value })}
-            />
+            <div className="password-field">
+              <input
+                type={showWifiPassword ? "text" : "password"}
+                value={form.wifiPassword}
+                onChange={(event) => setForm({ ...form, wifiPassword: event.target.value })}
+              />
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setShowWifiPassword((current) => !current)}
+                aria-label={showWifiPassword ? "Skjul WiFi password" : "Vis WiFi password"}
+              >
+                {showWifiPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
           </label>
           <label>
             Udløber efter dage
@@ -1086,6 +1138,61 @@ function ProvisioningModal({
             </div>
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+function DeleteDeviceModal({
+  device,
+  onCancel,
+  onConfirm,
+}: {
+  device: Device;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const canDelete = confirmation === "SLET";
+  const label = device.display_name || device.serial_number;
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (canDelete) {
+      onConfirm();
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Slet enhed">
+        <div className="panel-heading">
+          <div>
+            <h2>Slet enhed</h2>
+            <p>{label}</p>
+          </div>
+          <button className="icon-button" onClick={onCancel} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <form className="stack-form" onSubmit={handleSubmit}>
+          <p className="danger-copy">
+            Dette kan ikke fortrydes. Enheder med tilknyttede videoer kan ikke slettes.
+          </p>
+          <label>
+            Skriv SLET for at fortsætte
+            <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus />
+          </label>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>
+              Annuller
+            </button>
+            <button className="primary-button danger" type="submit" disabled={!canDelete}>
+              <Trash2 size={16} />
+              Slet enhed
+            </button>
+          </div>
+        </form>
       </section>
     </div>
   );
@@ -1242,6 +1349,14 @@ function relativeTime(value: string) {
   if (hours < 24) return `${hours} timer siden`;
   const days = Math.round(hours / 24);
   return `${days} dage siden`;
+}
+
+function formatTemperature(value: unknown) {
+  const temperature = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(temperature)) {
+    return "-";
+  }
+  return `${temperature.toFixed(1)} °C`;
 }
 
 function randomToken(bytes: number) {

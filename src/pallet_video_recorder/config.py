@@ -110,6 +110,16 @@ class DeviceConfig:
 
 
 @dataclass(frozen=True)
+class CloudConfig:
+    enabled: bool = False
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    heartbeat_interval_seconds: float = 60.0
+    request_timeout_seconds: float = 10.0
+    temperature_file: Path = Path("/sys/class/thermal/thermal_zone0/temp")
+
+
+@dataclass(frozen=True)
 class PrivacyConfig:
     enabled: bool = False
     face_blur: bool = True
@@ -210,6 +220,7 @@ class AppConfig:
     motion: MotionConfig = field(default_factory=MotionConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
+    cloud: CloudConfig = field(default_factory=CloudConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     sound: SoundConfig = field(default_factory=SoundConfig)
     status_light: StatusLightConfig = field(default_factory=StatusLightConfig)
@@ -233,6 +244,7 @@ def load_config(path: Path) -> AppConfig:
         motion=_build_motion(raw.get("motion", {})),
         recording=recording,
         device=_build_device(raw.get("device", {})),
+        cloud=_build_cloud(raw.get("cloud", {})),
         privacy=_build_privacy(raw.get("privacy", {})),
         sound=_dataclass_from_dict(SoundConfig, raw.get("sound", {})),
         status_light=_build_status_light(raw.get("status_light", {})),
@@ -263,6 +275,22 @@ def _build_device(raw: dict[str, Any]) -> DeviceConfig:
         raise ValueError("device.provisioning_qr_prefix cannot be empty")
     if re.fullmatch(r"[A-Z0-9]+", config.provisioning_qr_prefix) is None:
         raise ValueError("device.provisioning_qr_prefix may only contain uppercase letters and numbers")
+    return config
+
+
+def _build_cloud(raw: dict[str, Any]) -> CloudConfig:
+    values = dict(raw)
+    if "temperature_file" in values:
+        values["temperature_file"] = Path(values["temperature_file"])
+    config = _dataclass_from_dict(CloudConfig, values)
+    if config.enabled and not config.supabase_url.strip():
+        raise ValueError("cloud.supabase_url cannot be empty when cloud is enabled")
+    if config.enabled and not config.supabase_anon_key.strip():
+        raise ValueError("cloud.supabase_anon_key cannot be empty when cloud is enabled")
+    if config.heartbeat_interval_seconds <= 0:
+        raise ValueError("cloud.heartbeat_interval_seconds must be positive")
+    if config.request_timeout_seconds <= 0:
+        raise ValueError("cloud.request_timeout_seconds must be positive")
     return config
 
 

@@ -14,6 +14,7 @@ from typing import BinaryIO
 
 from .barcode import _has_valid_gs1_ai01
 from .config import HardwareScannerConfig
+from .log_safety import safe_scan_value
 
 LOGGER = logging.getLogger(__name__)
 
@@ -226,10 +227,10 @@ class HardwareScannerWorker:
         if len(value) < self.config.min_chars or len(value) > self.config.max_chars:
             return None
         if self.accepted_pattern.fullmatch(value) is None:
-            LOGGER.warning("Ignoring hardware barcode outside accepted pattern: %r", value)
+            LOGGER.warning("Ignoring hardware barcode outside accepted pattern: %s", safe_scan_value(value))
             return None
         if self.config.validate_gs1_ai01_check_digit and not _has_valid_gs1_ai01(value):
-            LOGGER.warning("Ignoring GS1 AI(01) barcode with invalid check digit: %r", value)
+            LOGGER.warning("Ignoring GS1 AI(01) barcode with invalid check digit: %s", safe_scan_value(value))
             return None
         return value
 
@@ -405,7 +406,7 @@ class HardwareScannerWorker:
             if self._last_accepted_value == value:
                 elapsed = now - self._last_accepted_at
                 if elapsed < self.config.duplicate_suppress_seconds:
-                    LOGGER.info("Ignoring duplicate hardware barcode/order number: %s", value)
+                    LOGGER.info("Ignoring duplicate hardware barcode/order number: %s", safe_scan_value(value))
                     return
 
             self._last_accepted_value = value
@@ -414,7 +415,7 @@ class HardwareScannerWorker:
             self._last_result = value
             self._results.append(value)
 
-        LOGGER.info("Hardware scanner read barcode/order number: %s", value)
+        LOGGER.info("Hardware scanner read barcode/order number: %s", safe_scan_value(value))
 
     def _resolve_device(self) -> ScannerDevice | None:
         configured_device = self.config.device.strip()

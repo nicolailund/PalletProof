@@ -165,6 +165,15 @@ textarea:focus {
   font-weight: 750;
 }
 
+.primary-button.danger {
+  background: var(--red);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .secondary-button {
   background: var(--surface-strong);
   color: var(--text);
@@ -184,6 +193,12 @@ textarea:focus {
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--text);
+}
+
+.icon-button.danger {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: #ecc1bb;
 }
 
 .icon-text-button {
@@ -574,6 +589,12 @@ tr:last-child td {
   white-space: nowrap;
 }
 
+.row-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -659,6 +680,20 @@ tr:last-child td {
   padding: 18px;
 }
 
+.danger-copy {
+  margin: 0;
+  color: var(--red);
+  line-height: 1.45;
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .qr-result {
   margin-top: 18px;
   border-top: 1px solid var(--line);
@@ -666,6 +701,17 @@ tr:last-child td {
   display: grid;
   place-items: center;
   gap: 12px;
+}
+
+.password-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: center;
+}
+
+.password-field .icon-button {
+  height: 38px;
 }
 
 .qr-result img {

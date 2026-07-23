@@ -57,6 +57,14 @@ identity_file = "identity/device.json"
 serial_number = "PP-DEV-001"
 provisioning_qr_prefix = "PALLETPROOF"
 
+[cloud]
+enabled = true
+supabase_url = "https://example.supabase.co"
+supabase_anon_key = "anon-test"
+heartbeat_interval_seconds = 45.0
+request_timeout_seconds = 6.0
+temperature_file = "/tmp/pi-temp"
+
 [privacy]
 fixed_masks = [[0.0, 0.0, 0.2, 0.2]]
 
@@ -125,6 +133,12 @@ night_end_hour = 5
             self.assertEqual(config.device.identity_file, Path("identity/device.json"))
             self.assertEqual(config.device.serial_number, "PP-DEV-001")
             self.assertEqual(config.device.provisioning_qr_prefix, "PALLETPROOF")
+            self.assertTrue(config.cloud.enabled)
+            self.assertEqual(config.cloud.supabase_url, "https://example.supabase.co")
+            self.assertEqual(config.cloud.supabase_anon_key, "anon-test")
+            self.assertEqual(config.cloud.heartbeat_interval_seconds, 45.0)
+            self.assertEqual(config.cloud.request_timeout_seconds, 6.0)
+            self.assertEqual(config.cloud.temperature_file, Path("/tmp/pi-temp"))
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))
             self.assertEqual(config.motion.minimum_recording_seconds, 30.0)
             self.assertEqual(config.barcode.roi, (0.2, 0.1, 0.5, 0.7))
