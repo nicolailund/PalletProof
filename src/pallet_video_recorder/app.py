@@ -4,6 +4,7 @@ import logging
 import shutil
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .camera import FrameSource, build_frame_source
@@ -13,6 +14,13 @@ from .hardware_scanner import HardwareScannerWorker
 from .motion import MotionDetector
 from .privacy import PrivacyProcessor
 from .preview import CameraPreviewServer
+from .provisioning import (
+    DeviceIdentity,
+    DeviceIdentityStore,
+    ProvisioningError,
+    looks_like_provisioning_qr,
+    parse_provisioning_qr,
+)
 from .scanner import BarcodeScanWorker
 from .sound import Beeper
 from .status_light import StatusLight
@@ -44,13 +52,23 @@ class PalletVideoApp:
         self.beeper = Beeper(config.sound)
         self.status_light = StatusLight(config.status_light)
         self._last_scan_status_logged_at = 0.0
+        self.identity_store = DeviceIdentityStore(self._identity_path())
+        self.device_identity: DeviceIdentity | None = None
 
     def run(self) -> None:
         self.config.paths.ensure()
         self.running = True
+        self.hardware_scanner.start()
+        self.status_light.idle()
+
+        self.device_identity = self._load_or_wait_for_device_identity()
+        if self.device_identity is None:
+            LOGGER.info("Application stopped before device was provisioned")
+            self._close()
+            return
+
         self.upload_worker.start()
         self.preview_server.start()
-        self.hardware_scanner.start()
         if self.config.barcode.enabled:
             self.barcode_scanner.start()
         else:
@@ -62,7 +80,7 @@ class PalletVideoApp:
         active: ActiveRecording | None = None
         frame_number = 0
 
-        LOGGER.info("Ready for barcode scan")
+        LOGGER.info("Ready for barcode scan on device serial %s", self.device_identity.serial_number)
         self.status_light.idle()
         self.hardware_scanner.enable_triggering()
         while self.running:
@@ -126,9 +144,78 @@ class PalletVideoApp:
         self.beeper.close()
         self.status_light.close()
 
+    def _load_or_wait_for_device_identity(self) -> DeviceIdentity | None:
+        try:
+            identity = self.identity_store.load()
+        except Exception:
+            LOGGER.exception("Could not load device identity")
+            raise
+
+        if identity is not None:
+            LOGGER.info(
+                "Device identity loaded serial=%s customer=%s site=%s",
+                identity.serial_number,
+                identity.customer_id or "-",
+                identity.site_id or "-",
+            )
+            return identity
+
+        if not self.config.device.provisioning_required:
+            identity = DeviceIdentity.unmanaged(self.config.device.serial_number)
+            LOGGER.warning(
+                "Device provisioning disabled; using unmanaged serial %s",
+                identity.serial_number,
+            )
+            return identity
+
+        if not self.config.hardware_scanner.enabled:
+            LOGGER.error("Device is unprovisioned, but hardware scanner is disabled")
+            return None
+
+        LOGGER.warning("Device is unprovisioned; waiting for PalletProof provisioning QR")
+        self.hardware_scanner.enable_triggering()
+        while self.running:
+            raw_value = self.hardware_scanner.poll()
+            if raw_value is None:
+                time.sleep(0.1)
+                continue
+
+            try:
+                payload = parse_provisioning_qr(
+                    raw_value,
+                    prefix=self.config.device.provisioning_qr_prefix,
+                    now=datetime.now(timezone.utc),
+                )
+            except ProvisioningError as exc:
+                LOGGER.warning("Ignoring scan while unprovisioned; provisioning QR required: %s", exc)
+                continue
+
+            identity = payload.to_identity()
+            self.identity_store.save(identity)
+            self.hardware_scanner.disable_triggering()
+            self.beeper.beep()
+            self.status_light.scanned()
+            LOGGER.info(
+                "Device provisioned serial=%s customer=%s site=%s wifi_ssid=%s api_base_url=%s",
+                identity.serial_number,
+                identity.customer_id or "-",
+                identity.site_id or "-",
+                identity.wifi_ssid or "-",
+                identity.api_base_url or "-",
+            )
+            return identity
+
+        return None
+
     def _read_order_number(self, frame: object, frame_number: int) -> str | None:
         barcode = self.hardware_scanner.poll()
         if barcode:
+            if looks_like_provisioning_qr(
+                barcode,
+                prefix=self.config.device.provisioning_qr_prefix,
+            ):
+                LOGGER.warning("Ignoring provisioning QR scan after device is already provisioned")
+                return None
             LOGGER.info("Read barcode/order number from hardware scanner: %s", barcode)
             self.beeper.beep()
             self.status_light.scanned()
@@ -186,7 +273,12 @@ class PalletVideoApp:
         )
 
     def _start_recording(self, order_number: str) -> ActiveRecording:
-        final_name = build_video_name(order_number, self.config.recording.file_extension)
+        assert self.device_identity is not None
+        final_name = build_video_name(
+            order_number,
+            self.config.recording.file_extension,
+            serial_number=self.device_identity.serial_number,
+        )
         in_progress_path = self.config.paths.in_progress / final_name
         LOGGER.info("Starting recording for order %s to %s", order_number, in_progress_path)
 
@@ -249,6 +341,12 @@ class PalletVideoApp:
             shutil.move(str(source_for_upload), str(pending_path))
 
         self.upload_worker.wake()
+
+    def _identity_path(self) -> Path:
+        path = self.config.device.identity_file
+        if path.is_absolute():
+            return path
+        return self.config.paths.root / path
 
 
 def _seconds_text(value: float | None) -> str:

@@ -80,7 +80,7 @@ class HardwareScannerConfig:
     trigger_active_high: bool = False
     duplicate_suppress_seconds: float = 2.0
     min_chars: int = 4
-    max_chars: int = 128
+    max_chars: int = 512
     accepted_pattern: str = r"^[A-Za-z0-9_.()$/+%-]+$"
     validate_gs1_ai01_check_digit: bool = True
 
@@ -99,6 +99,14 @@ class MotionConfig:
 class RecordingConfig:
     root_dir: Path = Path("data")
     file_extension: str = ".mp4"
+
+
+@dataclass(frozen=True)
+class DeviceConfig:
+    provisioning_required: bool = False
+    identity_file: Path = Path("device_identity.json")
+    serial_number: str = "UNPROVISIONED"
+    provisioning_qr_prefix: str = "PALLETPROOF"
 
 
 @dataclass(frozen=True)
@@ -185,6 +193,7 @@ class AppConfig:
     hardware_scanner: HardwareScannerConfig = field(default_factory=HardwareScannerConfig)
     motion: MotionConfig = field(default_factory=MotionConfig)
     recording: RecordingConfig = field(default_factory=RecordingConfig)
+    device: DeviceConfig = field(default_factory=DeviceConfig)
     privacy: PrivacyConfig = field(default_factory=PrivacyConfig)
     sound: SoundConfig = field(default_factory=SoundConfig)
     status_light: StatusLightConfig = field(default_factory=StatusLightConfig)
@@ -206,6 +215,7 @@ def load_config(path: Path) -> AppConfig:
         hardware_scanner=_build_hardware_scanner(raw.get("hardware_scanner", {})),
         motion=_build_motion(raw.get("motion", {})),
         recording=recording,
+        device=_build_device(raw.get("device", {})),
         privacy=_build_privacy(raw.get("privacy", {})),
         sound=_dataclass_from_dict(SoundConfig, raw.get("sound", {})),
         status_light=_build_status_light(raw.get("status_light", {})),
@@ -220,6 +230,22 @@ def _build_recording(raw: dict[str, Any]) -> RecordingConfig:
     if "root_dir" in values:
         values["root_dir"] = Path(values["root_dir"])
     return _dataclass_from_dict(RecordingConfig, values)
+
+
+def _build_device(raw: dict[str, Any]) -> DeviceConfig:
+    values = dict(raw)
+    if "identity_file" in values:
+        values["identity_file"] = Path(values["identity_file"])
+    config = _dataclass_from_dict(DeviceConfig, values)
+    if not config.serial_number.strip():
+        raise ValueError("device.serial_number cannot be empty")
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", config.serial_number.strip()) is None:
+        raise ValueError("device.serial_number must be 1-64 safe characters")
+    if not config.provisioning_qr_prefix:
+        raise ValueError("device.provisioning_qr_prefix cannot be empty")
+    if re.fullmatch(r"[A-Z0-9]+", config.provisioning_qr_prefix) is None:
+        raise ValueError("device.provisioning_qr_prefix may only contain uppercase letters and numbers")
+    return config
 
 
 def _build_barcode(raw: dict[str, Any]) -> BarcodeConfig:

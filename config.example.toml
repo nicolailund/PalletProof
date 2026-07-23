@@ -40,7 +40,9 @@ trigger_pulse_seconds = 0.60
 trigger_active_high = false
 duplicate_suppress_seconds = 2.0
 min_chars = 4
-max_chars = 128
+# Provisioning-QR er laengere end normale ordrestregkoder, saa hardware-scanneren
+# skal acceptere op til 512 tegn.
+max_chars = 512
 accepted_pattern = "^[A-Za-z0-9_.()$/+%-]+$"
 validate_gs1_ai01_check_digit = true
 
@@ -93,6 +95,16 @@ require_motion_before_stop = true
 [recording]
 root_dir = "data"
 file_extension = ".mp4"
+
+[device]
+# I produktion skal denne vaere true: foerste gyldige scan skal vaere en
+# PalletProof provisioning-QR med serienummer, kunde/site og WiFi-oplysninger.
+# Saet midlertidigt false ved lokal test uden QR/backend.
+provisioning_required = true
+identity_file = "device_identity.json"
+# Bruges kun som fallback, naar provisioning_required = false.
+serial_number = "UNPROVISIONED"
+provisioning_qr_prefix = "PALLETPROOF"
 
 [privacy]
 enabled = false

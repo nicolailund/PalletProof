@@ -6,13 +6,14 @@ MVP til en Raspberry Pi 5 med kamera ved en folieringsmaskine:
 2. Pi'en modtager ordrenummeret og giver et lyd-/lys-signal.
 3. Pi'en optager video, mens pallen drejer.
 4. Optagelsen stopper, når pallen har stået stille i et konfigureret antal sekunder.
-5. Videoen gemmes lokalt i en kø og uploades til FTP/FTPS med ordrenummer, dato og tid i filnavnet.
+5. Videoen gemmes lokalt i en kø og uploades til FTP/FTPS med enhedsserienummer, ordrenummer, dato og tid i filnavnet.
 6. Valgfri privacy-processering kan sløre detekterede ansigter og faste billedområder inden upload.
 
 ## Vigtige designvalg
 
 - **Lokal spool-kø først:** Netværk på lageret vil fejle fra tid til anden. Derfor er optagelsen færdig og gemt lokalt, før upload forsøges. Upload genprøves automatisk.
 - **WiFi/mobil behandles som netværk:** Selve appen er ligeglad med om forbindelsen er WiFi, Ethernet eller 4G/5G modem. Raspberry Pi OS bør sættes op med NetworkManager til automatisk failover.
+- **Provisioning før drift:** I produktion kan enheden starte i låst tilstand. Første gyldige scan skal være en PalletProof provisioning-QR, som binder enheden til serienummer, kunde og site.
 - **FTPS anbefales:** Almindelig FTP sender login og data ukrypteret. Brug `protocol = "ftps"` hvis serveren understøtter det.
 - **GDPR:** Den mest driftssikre løsning er at placere kameraet, så personer ikke kommer i billedet. Software-sløring er et ekstra sikkerhedslag, ikke en garanti.
 
@@ -58,6 +59,7 @@ Ret især:
 - `upload.remote_dir`
 - `hardware_scanner.device`
 - `hardware_scanner.accepted_pattern`
+- `device.provisioning_required`
 - `motion.roi`
 
 `motion.roi` er den del af billedet, hvor pallen forventes at dreje. Formatet er normaliseret:
@@ -67,6 +69,34 @@ roi = [0.10, 0.10, 0.80, 0.80]
 ```
 
 Det betyder `x`, `y`, `bredde`, `højde`, hvor `1.0` er hele billedets bredde/højde.
+
+## Provisioning og enhedsidentitet
+
+Når `device.provisioning_required = true`, virker enheden ikke som almindelig palleoptager, før den har scannet en PalletProof provisioning-QR med hardware-scanneren. QR-koden indeholder:
+
+- serienummer for enheden
+- kunde-/lagerreference
+- site eller lokation
+- aktiveringstoken
+- WiFi-navn og WiFi-password
+- valgfri API-base-URL og udløbstid
+
+Den kompakte QR-værdi bruger formatet `PALLETPROOF1.<base64url-json>`, så den kan læses sikkert af SEN-18088 uden at udvide de tilladte tegn for normale ordrescans. Hardware-scanneren skal derfor acceptere lange værdier:
+
+```toml
+[hardware_scanner]
+max_chars = 512
+```
+
+Efter god provisioning gemmes en lokal `device_identity.json`. Den gemmer serienummer, kunde/site og aktiveringstidspunkt, men ikke WiFi-password. Når backend-delen er på plads, bør aktiveringstokenet udskiftes med egentlige device credentials fra API'et, og WiFi-oplysningerne bør lægges i Raspberry Pi OS/NetworkManager i stedet for appens identity-fil.
+
+Til prototypetest uden backend/QR kan provisioning slås fra:
+
+```toml
+[device]
+provisioning_required = false
+serial_number = "PP-DEV-001"
+```
 
 ## Kør lokalt
 
@@ -275,8 +305,16 @@ sudo journalctl -u pallet-video -f
 Videoer navngives sådan:
 
 ```text
-ORDRENUMMER_20260705_153012.mp4
+SERIENUMMER_ORDRENUMMER_20260705_153012.mp4
 ```
+
+Eksempel:
+
+```text
+PP-000123_ORD-456_20260705_153012.mp4
+```
+
+Hvis provisioning er slået fra, bruges `device.serial_number` som fallback-serienummer.
 
 Hvis privacy-processering er slået til, uploades den behandlede video med samme navn. Råvideoen slettes efter behandlingen, hvis `privacy.delete_source_after_processing = true`.
 

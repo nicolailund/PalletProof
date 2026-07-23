@@ -51,6 +51,12 @@ max_chars = 80
 accepted_pattern = "^[A-Z0-9-]+$"
 validate_gs1_ai01_check_digit = false
 
+[device]
+provisioning_required = true
+identity_file = "identity/device.json"
+serial_number = "PP-DEV-001"
+provisioning_qr_prefix = "PALLETPROOF"
+
 [privacy]
 fixed_masks = [[0.0, 0.0, 0.2, 0.2]]
 
@@ -101,6 +107,10 @@ jpeg_quality = 70
             self.assertEqual(config.hardware_scanner.max_chars, 80)
             self.assertEqual(config.hardware_scanner.accepted_pattern, "^[A-Z0-9-]+$")
             self.assertFalse(config.hardware_scanner.validate_gs1_ai01_check_digit)
+            self.assertTrue(config.device.provisioning_required)
+            self.assertEqual(config.device.identity_file, Path("identity/device.json"))
+            self.assertEqual(config.device.serial_number, "PP-DEV-001")
+            self.assertEqual(config.device.provisioning_qr_prefix, "PALLETPROOF")
             self.assertEqual(config.motion.roi, (0.1, 0.2, 0.3, 0.4))
             self.assertEqual(config.motion.minimum_recording_seconds, 30.0)
             self.assertEqual(config.barcode.roi, (0.2, 0.1, 0.5, 0.7))
