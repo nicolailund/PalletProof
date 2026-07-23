@@ -230,7 +230,7 @@ function App() {
       });
       let videoQuery = client
         .from("videos")
-        .select("*, devices(serial_number, display_name), sites(name)")
+        .select("*, devices(serial_number, display_name), sites!videos_site_id_fkey(name)")
         .eq("organization_id", effectiveOrgId)
         .order("created_at", { ascending: false })
         .limit(100);
