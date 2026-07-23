@@ -680,6 +680,42 @@ tr:last-child td {
   padding: 18px;
 }
 
+.video-modal {
+  width: min(980px, 100%);
+}
+
+.video-player-frame {
+  width: 100%;
+  min-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #111713;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.video-player {
+  width: 100%;
+  max-height: min(68vh, 680px);
+  display: block;
+  background: #111713;
+}
+
+.inline-state {
+  width: min(320px, 100%);
+  color: #ffffff;
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.inline-state .loading-line {
+  margin: 0;
+}
+
 .danger-copy {
   margin: 0;
   color: var(--red);

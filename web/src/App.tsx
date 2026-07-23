@@ -6,6 +6,7 @@ import {
   Boxes,
   Check,
   Copy,
+  Download,
   Eye,
   EyeOff,
   ExternalLink,
@@ -53,6 +54,14 @@ type RolloutForm = {
 type ShareResult = {
   url: string;
   token: string;
+};
+
+type VideoPlayerState = {
+  video: Video;
+  playbackUrl: string;
+  downloadUrl: string;
+  loading: boolean;
+  error: string;
 };
 
 const emptyDeviceForm: DeviceForm = {
@@ -123,6 +132,7 @@ function App() {
   const [resetQrImage, setResetQrImage] = useState("");
   const [rolloutForm, setRolloutForm] = useState<RolloutForm>(emptyRolloutForm);
   const [shareResult, setShareResult] = useState<ShareResult | null>(null);
+  const [videoPlayer, setVideoPlayer] = useState<VideoPlayerState | null>(null);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -449,6 +459,54 @@ function App() {
     }
   }
 
+  async function handleOpenVideo(video: Video) {
+    setVideoPlayer({ video, playbackUrl: "", downloadUrl: "", loading: true, error: "" });
+
+    if (video.status !== "uploaded") {
+      setVideoPlayer({
+        video,
+        playbackUrl: "",
+        downloadUrl: "",
+        loading: false,
+        error: "Videoen er ikke klar til afspilning endnu.",
+      });
+      return;
+    }
+
+    try {
+      const storage = requireSupabase().storage.from(video.storage_bucket || "videos");
+      const [playbackResult, downloadResult] = await Promise.all([
+        storage.createSignedUrl(video.storage_path, 60 * 60),
+        storage.createSignedUrl(video.storage_path, 60 * 60, { download: video.filename || true }),
+      ]);
+
+      if (playbackResult.error || !playbackResult.data?.signedUrl) {
+        throw playbackResult.error ?? new Error("Kunne ikke oprette afspilningslink.");
+      }
+      if (downloadResult.error || !downloadResult.data?.signedUrl) {
+        throw downloadResult.error ?? new Error("Kunne ikke oprette downloadlink.");
+      }
+
+      setVideoPlayer({
+        video,
+        playbackUrl: playbackResult.data.signedUrl,
+        downloadUrl: downloadResult.data.signedUrl,
+        loading: false,
+        error: "",
+      });
+    } catch (caught) {
+      setVideoPlayer((current) =>
+        current?.video.id === video.id
+          ? {
+              ...current,
+              loading: false,
+              error: `Videoen kunne ikke åbnes: ${errorMessage(caught)}`,
+            }
+          : current,
+      );
+    }
+  }
+
   async function handleDeleteDevice(device: Device) {
     const label = device.display_name || device.serial_number;
     try {
@@ -650,6 +708,7 @@ function App() {
                 videos={visibleVideos}
                 search={search}
                 setSearch={setSearch}
+                onOpenVideo={handleOpenVideo}
                 onShare={handlePrepareShare}
                 shareResult={shareResult}
                 clearShare={() => setShareResult(null)}
@@ -696,6 +755,8 @@ function App() {
           onClose={() => setResetDevice(null)}
         />
       )}
+
+      {videoPlayer && <VideoPlayerModal state={videoPlayer} onClose={() => setVideoPlayer(null)} />}
     </main>
   );
 }
@@ -914,6 +975,7 @@ function VideosView({
   videos,
   search,
   setSearch,
+  onOpenVideo,
   onShare,
   shareResult,
   clearShare,
@@ -921,6 +983,7 @@ function VideosView({
   videos: Video[];
   search: string;
   setSearch: (value: string) => void;
+  onOpenVideo: (video: Video) => void;
   onShare: (video: Video) => void;
   shareResult: ShareResult | null;
   clearShare: () => void;
@@ -980,6 +1043,15 @@ function VideosView({
                 <td>{video.privacy_status}</td>
                 <td>{video.created_at ? relativeTime(video.created_at) : "-"}</td>
                 <td className="row-actions">
+                  <button
+                    className="icon-text-button"
+                    onClick={() => void onOpenVideo(video)}
+                    disabled={video.status !== "uploaded"}
+                    aria-label={`Se video ${video.scanned_id}`}
+                  >
+                    <Eye size={16} />
+                    Se
+                  </button>
                   <button className="icon-text-button" onClick={() => void onShare(video)}>
                     <Share2 size={16} />
                     Del
@@ -998,6 +1070,46 @@ function VideosView({
         </table>
       </div>
     </section>
+  );
+}
+
+function VideoPlayerModal({ state, onClose }: { state: VideoPlayerState; onClose: () => void }) {
+  const { video, playbackUrl, downloadUrl, loading, error } = state;
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal video-modal" role="dialog" aria-modal="true" aria-label="Videoafspiller">
+        <div className="panel-heading">
+          <div>
+            <h2>{video.scanned_id}</h2>
+            <p>{video.filename}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Luk">
+            ×
+          </button>
+        </div>
+
+        <div className="video-player-frame">
+          {loading && <ShellStateInline label="Henter video" />}
+          {!loading && error && <EmptyState title="Videoen kunne ikke åbnes" text={error} />}
+          {!loading && !error && playbackUrl && (
+            <video className="video-player" src={playbackUrl} controls preload="metadata" playsInline />
+          )}
+        </div>
+
+        <div className="modal-actions">
+          {downloadUrl && (
+            <a className="secondary-button" href={downloadUrl}>
+              <Download size={16} />
+              Download
+            </a>
+          )}
+          <button className="secondary-button" type="button" onClick={onClose}>
+            Luk
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1373,6 +1485,15 @@ function ShellState({ label }: { label: string }) {
         </div>
       </section>
     </main>
+  );
+}
+
+function ShellStateInline({ label }: { label: string }) {
+  return (
+    <div className="inline-state">
+      <div className="loading-line" />
+      <span>{label}</span>
+    </div>
   );
 }
 
