@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 
 from pallet_video_recorder.config import HardwareScannerConfig
@@ -101,6 +103,42 @@ class HardwareScannerWorkerTest(unittest.TestCase):
             sorted(devices, key=_device_sort_key)[0],
             ScannerDevice("hid_keyboard", "/dev/input/by-id/usb-SAGE_Technology_QR_Scanner-event-kbd"),
         )
+
+    def test_disable_triggering_turns_output_off_during_active_pulse(self) -> None:
+        output = FakeTriggerOutput()
+        worker = HardwareScannerWorker(
+            HardwareScannerConfig(
+                trigger_gpio_enabled=True,
+                trigger_pulse_seconds=10.0,
+            )
+        )
+        worker._trigger_output = output
+        worker._trigger_event.set()
+
+        thread = threading.Thread(target=worker._pulse_trigger)
+        thread.start()
+        time.sleep(0.05)
+        worker.disable_triggering()
+        thread.join(timeout=1.0)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(output.active, False)
+        self.assertIn("on", output.calls)
+        self.assertEqual(output.calls[-1], "off")
+
+
+class FakeTriggerOutput:
+    def __init__(self) -> None:
+        self.active = False
+        self.calls: list[str] = []
+
+    def on(self) -> None:
+        self.active = True
+        self.calls.append("on")
+
+    def off(self) -> None:
+        self.active = False
+        self.calls.append("off")
 
 
 if __name__ == "__main__":

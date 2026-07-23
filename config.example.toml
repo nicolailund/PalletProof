@@ -33,8 +33,10 @@ line_idle_seconds = 0.25
 # Standard er GPIO23, fysisk pin 16. Forbind kun scannerens TRIG og GND til Pi'en.
 trigger_gpio_enabled = false
 trigger_gpio_pin = 23
-trigger_interval_seconds = 2.0
-trigger_pulse_seconds = 0.15
+# Brug et skånsomt interval, så scannerens lys/aiming LED ikke blinker unødigt ofte.
+trigger_interval_seconds = 6.0
+# SEN-18088 kan kræve en tydelig puls for at starte scanning stabilt via TRIG.
+trigger_pulse_seconds = 0.60
 trigger_active_high = false
 duplicate_suppress_seconds = 2.0
 min_chars = 4

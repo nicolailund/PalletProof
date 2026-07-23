@@ -201,6 +201,7 @@ class HardwareScannerWorker:
 
     def disable_triggering(self) -> None:
         self._trigger_event.clear()
+        self._set_trigger_output(False)
 
     def poll(self) -> str | None:
         with self._lock:
@@ -478,11 +479,24 @@ class HardwareScannerWorker:
         if self._trigger_output is None:
             return
         try:
-            self._trigger_output.on()
-            self._stop_event.wait(self.config.trigger_pulse_seconds)
-            self._trigger_output.off()
+            self._set_trigger_output(True)
+            deadline = self._clock() + self.config.trigger_pulse_seconds
+            while not self._stop_event.is_set() and self._trigger_event.is_set():
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    break
+                self._stop_event.wait(min(0.05, remaining))
+            self._set_trigger_output(False)
         except Exception as exc:  # pragma: no cover - Pi-only dependency
             LOGGER.warning("Could not pulse hardware barcode scanner trigger: %s", exc)
+
+    def _set_trigger_output(self, active: bool) -> None:
+        if self._trigger_output is None:
+            return
+        if active:
+            self._trigger_output.on()
+        else:
+            self._trigger_output.off()
 
 
 def _device_sort_key(device: ScannerDevice | str) -> tuple[int, str]:
