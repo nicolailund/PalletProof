@@ -8,4 +8,9 @@ config.toml
 debug/
 .env
 .env.*
+!.env.example
+!**/.env.example
 secrets/
+supabase/.temp/
+node_modules/
+dist/
