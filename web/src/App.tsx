@@ -307,13 +307,13 @@ function App() {
 
     const client = requireSupabase();
     setError("");
-    const { error: insertError } = await client.from("devices").insert({
+    const { data: insertedDevice, error: insertError } = await client.from("devices").insert({
       organization_id: selectedOrganization.id,
       site_id: siteId,
       serial_number: serialNumber,
       display_name: deviceForm.displayName.trim(),
       status: "unprovisioned",
-    });
+    }).select("*").single();
 
     if (insertError) {
       setError(insertError.message);
@@ -322,6 +322,9 @@ function App() {
 
     setDeviceForm({ ...emptyDeviceForm, siteId });
     setNotice(`Enhed ${serialNumber} er oprettet.`);
+    if (insertedDevice) {
+      setDevices((current) => [insertedDevice as Device, ...current]);
+    }
     await loadWorkspace();
   }
 
@@ -1277,6 +1280,19 @@ async function copyText(value: string) {
 function errorMessage(caught: unknown) {
   if (caught instanceof Error) return caught.message;
   if (typeof caught === "string") return caught;
+  if (caught && typeof caught === "object") {
+    const values = caught as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [values.message, values.details, values.hint, values.code]
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
+    if (parts.length > 0) {
+      return parts.join(" · ");
+    }
+    try {
+      return JSON.stringify(caught);
+    } catch {
+      return "Der opstod en ukendt fejl.";
+    }
+  }
   return "Der opstod en ukendt fejl.";
 }
 
