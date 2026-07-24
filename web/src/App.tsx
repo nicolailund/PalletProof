@@ -6,11 +6,14 @@ import {
   Boxes,
   Check,
   Copy,
+  CreditCard,
+  Database,
   Download,
   Eye,
   EyeOff,
   ExternalLink,
   Film,
+  HardDrive,
   KeyRound,
   LogOut,
   Moon,
@@ -20,15 +23,27 @@ import {
   Search,
   Share2,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   UploadCloud,
   Wifi,
   Zap,
 } from "lucide-react";
 import { isSupabaseConfigured, requireSupabase, supabaseUrl } from "./supabase";
-import type { CurrentMembershipRow, Device, DeviceEvent, Membership, Organization, Site, SoftwareRollout, Video } from "./types";
+import type {
+  BillingPrice,
+  CurrentMembershipRow,
+  Device,
+  DeviceEvent,
+  Membership,
+  Organization,
+  Site,
+  SiteBillingUsage,
+  SoftwareRollout,
+  Video,
+} from "./types";
 
-type Tab = "overview" | "devices" | "videos" | "updates";
+type Tab = "overview" | "devices" | "videos" | "billing" | "updates";
 
 type DeviceForm = {
   serialNumber: string;
@@ -49,6 +64,18 @@ type RolloutForm = {
   targetRef: string;
   targetCommit: string;
   description: string;
+};
+
+type SiteEntitlementForm = {
+  includedStorageGb: string;
+  extraStorageGb: string;
+  retentionDays: string;
+  autoDeleteEnabled: boolean;
+  protectSharedVideos: boolean;
+};
+
+type PriceForm = {
+  unitAmount: string;
 };
 
 type ShareResult = {
@@ -85,6 +112,18 @@ const emptyRolloutForm: RolloutForm = {
   description: "",
 };
 
+const emptySiteEntitlementForm: SiteEntitlementForm = {
+  includedStorageGb: "100",
+  extraStorageGb: "0",
+  retentionDays: "90",
+  autoDeleteEnabled: true,
+  protectSharedVideos: true,
+};
+
+const emptyPriceForm: PriceForm = {
+  unitAmount: "0",
+};
+
 const statusLabel: Record<Device["status"], string> = {
   unprovisioned: "Ikke provisioneret",
   online: "Online",
@@ -119,6 +158,9 @@ function App() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [events, setEvents] = useState<DeviceEvent[]>([]);
   const [rollouts, setRollouts] = useState<SoftwareRollout[]>([]);
+  const [billingPrices, setBillingPrices] = useState<BillingPrice[]>([]);
+  const [billingUsage, setBillingUsage] = useState<SiteBillingUsage[]>([]);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [selectedOrgId, setSelectedOrgId] = useState("");
   const [selectedSiteId, setSelectedSiteId] = useState("all");
   const [deviceForm, setDeviceForm] = useState<DeviceForm>(emptyDeviceForm);
@@ -126,6 +168,10 @@ function App() {
   const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm);
   const [deleteDevice, setDeleteDevice] = useState<Device | null>(null);
   const [resetDevice, setResetDevice] = useState<Device | null>(null);
+  const [editingEntitlement, setEditingEntitlement] = useState<SiteBillingUsage | null>(null);
+  const [siteEntitlementForm, setSiteEntitlementForm] = useState<SiteEntitlementForm>(emptySiteEntitlementForm);
+  const [editingPrice, setEditingPrice] = useState<BillingPrice | null>(null);
+  const [priceForm, setPriceForm] = useState<PriceForm>(emptyPriceForm);
   const [qrValue, setQrValue] = useState("");
   const [qrImage, setQrImage] = useState("");
   const [resetQrValue, setResetQrValue] = useState("");
@@ -175,6 +221,12 @@ function App() {
 
   const selectedOrganization = organizations.find((organization) => organization.id === selectedOrgId) ?? organizations[0];
   const selectedSite = selectedSiteId === "all" ? null : sites.find((site) => site.id === selectedSiteId) ?? null;
+  const canManageBilling = memberships.some(
+    (membership) =>
+      membership.organization_id === selectedOrganization?.id &&
+      membership.site_id === null &&
+      (membership.role === "owner" || membership.role === "admin"),
+  );
   const recentEvents = events.slice(0, 8);
   const visibleVideos = videos.filter((video) => {
     const needle = search.trim().toLowerCase();
@@ -200,6 +252,15 @@ function App() {
     setError("");
 
     try {
+      if (session) {
+        const { data: platformAdminData } = await client
+          .from("platform_admins")
+          .select("user_id")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+        setIsPlatformAdmin(Boolean(platformAdminData));
+      }
+
       const { data: membershipData, error: membershipError } = await client.rpc("current_memberships");
 
       if (membershipError) {
@@ -219,6 +280,8 @@ function App() {
         setVideos([]);
         setEvents([]);
         setRollouts([]);
+        setBillingPrices([]);
+        setBillingUsage([]);
         return;
       }
 
@@ -257,6 +320,11 @@ function App() {
         .eq("organization_id", effectiveOrgId)
         .order("created_at", { ascending: false })
         .limit(50);
+      const priceQuery = client
+        .from("billing_price_catalog")
+        .select("*")
+        .eq("active", true)
+        .order("sort_order", { ascending: true });
 
       if (effectiveSiteId !== "all") {
         deviceQuery = deviceQuery.eq("site_id", effectiveSiteId);
@@ -264,22 +332,28 @@ function App() {
         eventQuery = eventQuery.eq("site_id", effectiveSiteId);
       }
 
-      const [deviceResult, videoResult, eventResult, rolloutResult] = await Promise.all([
+      const [deviceResult, videoResult, eventResult, rolloutResult, priceResult, usageResult] = await Promise.all([
         deviceQuery,
         videoQuery,
         eventQuery,
         client.from("software_rollouts").select("*").order("created_at", { ascending: false }).limit(20),
+        priceQuery,
+        client.rpc("billing_site_usage", { p_organization_id: effectiveOrgId }),
       ]);
 
       if (deviceResult.error) throw deviceResult.error;
       if (videoResult.error) throw videoResult.error;
       if (eventResult.error) throw eventResult.error;
       if (rolloutResult.error) throw rolloutResult.error;
+      if (priceResult.error) throw priceResult.error;
+      if (usageResult.error) throw usageResult.error;
 
       setDevices((deviceResult.data ?? []) as Device[]);
       setVideos((videoResult.data ?? []) as Video[]);
       setEvents((eventResult.data ?? []) as DeviceEvent[]);
       setRollouts((rolloutResult.data ?? []) as SoftwareRollout[]);
+      setBillingPrices((priceResult.data ?? []) as BillingPrice[]);
+      setBillingUsage((usageResult.data ?? []) as SiteBillingUsage[]);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -304,6 +378,9 @@ function App() {
     setSites([]);
     setDevices([]);
     setVideos([]);
+    setBillingPrices([]);
+    setBillingUsage([]);
+    setIsPlatformAdmin(false);
   }
 
   async function handleAddDevice(event: FormEvent) {
@@ -524,6 +601,93 @@ function App() {
     }
   }
 
+  function openEditEntitlement(usage: SiteBillingUsage) {
+    setEditingEntitlement(usage);
+    setSiteEntitlementForm({
+      includedStorageGb: String(usage.included_storage_gb),
+      extraStorageGb: String(usage.extra_storage_gb),
+      retentionDays: String(usage.retention_days),
+      autoDeleteEnabled: usage.auto_delete_enabled,
+      protectSharedVideos: usage.protect_shared_videos,
+    });
+    setError("");
+  }
+
+  async function handleSaveSiteEntitlement(event: FormEvent) {
+    event.preventDefault();
+    if (!editingEntitlement || !canManageBilling) return;
+
+    const includedStorageGb = Number(siteEntitlementForm.includedStorageGb);
+    const extraStorageGb = Number(siteEntitlementForm.extraStorageGb);
+    const retentionDays = Number(siteEntitlementForm.retentionDays);
+
+    if (!Number.isFinite(includedStorageGb) || includedStorageGb < 0) {
+      setError("Inkluderet storage skal være 0 GB eller mere.");
+      return;
+    }
+    if (!Number.isFinite(extraStorageGb) || extraStorageGb < 0) {
+      setError("Ekstra storage skal være 0 GB eller mere.");
+      return;
+    }
+    if (!Number.isInteger(retentionDays) || retentionDays < 1) {
+      setError("Retention skal være mindst 1 dag.");
+      return;
+    }
+
+    const client = requireSupabase();
+    const { error: entitlementError } = await client.from("site_billing_entitlements").upsert({
+      organization_id: editingEntitlement.organization_id,
+      site_id: editingEntitlement.site_id,
+      included_storage_gb: includedStorageGb,
+      extra_storage_gb: extraStorageGb,
+      retention_days: retentionDays,
+      auto_delete_enabled: siteEntitlementForm.autoDeleteEnabled,
+      protect_shared_videos: siteEntitlementForm.protectSharedVideos,
+      site_service_price_code: "site_service_base",
+      storage_addon_price_code: "storage_extra_gb_monthly",
+    });
+
+    if (entitlementError) {
+      setError(entitlementError.message);
+      return;
+    }
+
+    setNotice(`Billing-regler opdateret for ${editingEntitlement.site_name}.`);
+    setEditingEntitlement(null);
+    await loadWorkspace();
+  }
+
+  function openEditPrice(price: BillingPrice) {
+    setEditingPrice(price);
+    setPriceForm({ unitAmount: String(minorAmount(price) / 100) });
+    setError("");
+  }
+
+  async function handleSavePrice(event: FormEvent) {
+    event.preventDefault();
+    if (!editingPrice || !isPlatformAdmin) return;
+
+    const unitAmount = Number(priceForm.unitAmount.replace(",", "."));
+    if (!Number.isFinite(unitAmount) || unitAmount < 0) {
+      setError("Prisen skal være 0 kr. eller mere.");
+      return;
+    }
+
+    const { error: priceError } = await requireSupabase()
+      .from("billing_price_catalog")
+      .update({ unit_amount_minor: Math.round(unitAmount * 100) })
+      .eq("id", editingPrice.id);
+
+    if (priceError) {
+      setError(priceError.message);
+      return;
+    }
+
+    setNotice(`Pris opdateret: ${editingPrice.name}.`);
+    setEditingPrice(null);
+    await loadWorkspace();
+  }
+
   function openProvisioning(device: Device) {
     setProvisionDevice(device);
     setProvisionForm(emptyProvisionForm);
@@ -618,6 +782,7 @@ function App() {
           <NavButton active={tab === "overview"} icon={<Activity size={17} />} label="Overblik" onClick={() => setTab("overview")} />
           <NavButton active={tab === "devices"} icon={<QrCode size={17} />} label="Enheder" onClick={() => setTab("devices")} />
           <NavButton active={tab === "videos"} icon={<Film size={17} />} label="Videoer" onClick={() => setTab("videos")} />
+          <NavButton active={tab === "billing"} icon={<CreditCard size={17} />} label="Billing" onClick={() => setTab("billing")} />
           <NavButton active={tab === "updates"} icon={<RefreshCcw size={17} />} label="Updates" onClick={() => setTab("updates")} />
         </nav>
 
@@ -715,6 +880,17 @@ function App() {
               />
             )}
 
+            {tab === "billing" && (
+              <BillingView
+                prices={billingPrices}
+                usage={selectedSite ? billingUsage.filter((row) => row.site_id === selectedSite.id) : billingUsage}
+                canManageBilling={canManageBilling}
+                isPlatformAdmin={isPlatformAdmin}
+                onEditEntitlement={openEditEntitlement}
+                onEditPrice={openEditPrice}
+              />
+            )}
+
             {tab === "updates" && (
               <UpdatesView
                 rollouts={rollouts}
@@ -757,6 +933,28 @@ function App() {
       )}
 
       {videoPlayer && <VideoPlayerModal state={videoPlayer} onClose={() => setVideoPlayer(null)} />}
+
+      {editingEntitlement && (
+        <SiteEntitlementModal
+          usage={editingEntitlement}
+          form={siteEntitlementForm}
+          setForm={setSiteEntitlementForm}
+          canManageBilling={canManageBilling}
+          onSubmit={handleSaveSiteEntitlement}
+          onClose={() => setEditingEntitlement(null)}
+        />
+      )}
+
+      {editingPrice && (
+        <PriceModal
+          price={editingPrice}
+          form={priceForm}
+          setForm={setPriceForm}
+          isPlatformAdmin={isPlatformAdmin}
+          onSubmit={handleSavePrice}
+          onClose={() => setEditingPrice(null)}
+        />
+      )}
     </main>
   );
 }
@@ -1113,6 +1311,162 @@ function VideoPlayerModal({ state, onClose }: { state: VideoPlayerState; onClose
   );
 }
 
+function BillingView({
+  prices,
+  usage,
+  canManageBilling,
+  isPlatformAdmin,
+  onEditEntitlement,
+  onEditPrice,
+}: {
+  prices: BillingPrice[];
+  usage: SiteBillingUsage[];
+  canManageBilling: boolean;
+  isPlatformAdmin: boolean;
+  onEditEntitlement: (usage: SiteBillingUsage) => void;
+  onEditPrice: (price: BillingPrice) => void;
+}) {
+  const hardwarePrice = priceFor(prices, "hardware_setup");
+  const sitePrice = priceFor(prices, "site_service");
+  const devicePrice = priceFor(prices, "device_license");
+  const storagePrice = priceFor(prices, "storage_addon");
+  const billableDevices = usage.reduce((sum, row) => sum + numberValue(row.billable_device_count), 0);
+  const hardwarePending = usage.reduce((sum, row) => sum + numberValue(row.hardware_pending_count), 0);
+  const extraStorageGb = usage.reduce((sum, row) => sum + numberValue(row.extra_storage_gb), 0);
+  const monthlyEstimate =
+    minorAmount(sitePrice) * usage.length +
+    minorAmount(devicePrice) * billableDevices +
+    minorAmount(storagePrice) * extraStorageGb;
+  const hardwareEstimate = minorAmount(hardwarePrice) * hardwarePending;
+  const currency = sitePrice?.currency || devicePrice?.currency || storagePrice?.currency || "DKK";
+
+  return (
+    <div className="content-grid">
+      <section className="metrics-grid">
+        <Metric icon={<CreditCard size={18} />} label="Est. månedlig base" value={formatMoney(monthlyEstimate, currency)} tone="active" />
+        <Metric icon={<Boxes size={18} />} label="Hardware opstart" value={formatMoney(hardwareEstimate, currency)} tone="neutral" />
+        <Metric icon={<HardDrive size={18} />} label="Billable enheder" value={String(billableDevices)} tone="neutral" />
+        <Metric icon={<Database size={18} />} label="Ekstra storage" value={`${formatNumber(extraStorageGb)} GB`} tone="neutral" />
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Priskatalog</h2>
+            <p>Komponenter der senere kobles til Stripe prices</p>
+          </div>
+        </div>
+        <div className="price-list">
+          <PriceRow price={hardwarePrice} fallback="Hardware opstart" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
+          <PriceRow price={sitePrice} fallback="Service fee pr. site" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
+          <PriceRow price={devicePrice} fallback="Softwarelicens pr. enhed" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
+          <PriceRow price={storagePrice} fallback="Ekstra storage pr. GB" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
+        </div>
+      </section>
+
+      <section className="panel wide">
+        <div className="panel-heading">
+          <div>
+            <h2>Storage og entitlements</h2>
+            <p>Ældste videoer kan slettes først, når auto-delete aktiveres og grænsen er nået</p>
+          </div>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th>Forbrug</th>
+                <th>Videoer</th>
+                <th>Enheder</th>
+                <th>Retention</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {usage.map((row) => (
+                <tr key={row.site_id}>
+                  <td>
+                    <strong>{row.site_name}</strong>
+                    <span>{row.auto_delete_enabled ? "Auto-delete aktiv" : "Auto-delete slået fra"}</span>
+                  </td>
+                  <td>
+                    <div className="storage-cell">
+                      <div className="storage-bar" aria-label={`Storage usage ${row.usage_pct}%`}>
+                        <span className={storageBarClass(row)} style={{ width: `${Math.min(100, numberValue(row.usage_pct))}%` }} />
+                      </div>
+                      <span>
+                        {formatGb(row.used_storage_gb)} / {formatGb(row.total_storage_gb)}
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <strong>{formatNumber(row.uploaded_video_count)}</strong>
+                    <span>{row.shared_video_count} delt · {row.protected_video_count} protected</span>
+                  </td>
+                  <td>
+                    <strong>{row.billable_device_count} billable</strong>
+                    <span>{row.active_device_count} online/optager · {row.hardware_pending_count} hardware åbent</span>
+                  </td>
+                  <td>
+                    <strong>{row.retention_days} dage</strong>
+                    <span>{row.protect_shared_videos ? "Delt video beskyttes" : "Delt video kan slettes"}</span>
+                  </td>
+                  <td className="row-actions">
+                    <button className="icon-text-button" onClick={() => onEditEntitlement(row)} disabled={!canManageBilling}>
+                      <SlidersHorizontal size={16} />
+                      Styr
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {usage.length === 0 && (
+                <tr>
+                  <td colSpan={6}>
+                    <EmptyState title="Ingen billing-data" text="Opret sites for at se storage og billing-entitlements." />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PriceRow({
+  price,
+  fallback,
+  isPlatformAdmin,
+  onEditPrice,
+}: {
+  price: BillingPrice | undefined;
+  fallback: string;
+  isPlatformAdmin: boolean;
+  onEditPrice: (price: BillingPrice) => void;
+}) {
+  return (
+    <div className="price-row">
+      <div>
+        <strong>{price?.name || fallback}</strong>
+        <span>{price?.description || "Ikke konfigureret endnu"}</span>
+      </div>
+      <div className="price-actions">
+        <Badge tone={price && minorAmount(price) > 0 ? "active" : "neutral"}>
+          {price ? `${formatMoney(minorAmount(price), price.currency)} / ${price.unit_label || price.billing_period}` : "Mangler"}
+        </Badge>
+        {price && isPlatformAdmin && (
+          <button className="icon-text-button" onClick={() => onEditPrice(price)}>
+            <SlidersHorizontal size={16} />
+            Pris
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function UpdatesView({
   rollouts,
   rolloutForm,
@@ -1344,6 +1698,159 @@ function ResetQrModal({
   );
 }
 
+function SiteEntitlementModal({
+  usage,
+  form,
+  setForm,
+  canManageBilling,
+  onSubmit,
+  onClose,
+}: {
+  usage: SiteBillingUsage;
+  form: SiteEntitlementForm;
+  setForm: (form: SiteEntitlementForm) => void;
+  canManageBilling: boolean;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Billing entitlement">
+        <div className="panel-heading">
+          <div>
+            <h2>Billing-regler</h2>
+            <p>{usage.site_name}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        {!canManageBilling && <p className="modal-copy">Kun organization owner/admin kan ændre billing-regler.</p>}
+        <form className="stack-form" onSubmit={onSubmit}>
+          <label>
+            Inkluderet storage, GB
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.includedStorageGb}
+              onChange={(event) => setForm({ ...form, includedStorageGb: event.target.value })}
+              disabled={!canManageBilling}
+            />
+          </label>
+          <label>
+            Ekstra storage, GB
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.extraStorageGb}
+              onChange={(event) => setForm({ ...form, extraStorageGb: event.target.value })}
+              disabled={!canManageBilling}
+            />
+          </label>
+          <label>
+            Retention, dage
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={form.retentionDays}
+              onChange={(event) => setForm({ ...form, retentionDays: event.target.value })}
+              disabled={!canManageBilling}
+            />
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={form.autoDeleteEnabled}
+              onChange={(event) => setForm({ ...form, autoDeleteEnabled: event.target.checked })}
+              disabled={!canManageBilling}
+            />
+            Auto-delete ældste videoer ved pladsmangel
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={form.protectSharedVideos}
+              onChange={(event) => setForm({ ...form, protectSharedVideos: event.target.checked })}
+              disabled={!canManageBilling}
+            />
+            Beskyt videoer med aktive delingslinks
+          </label>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Annuller
+            </button>
+            <button className="primary-button" type="submit" disabled={!canManageBilling}>
+              <Check size={16} />
+              Gem regler
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function PriceModal({
+  price,
+  form,
+  setForm,
+  isPlatformAdmin,
+  onSubmit,
+  onClose,
+}: {
+  price: BillingPrice;
+  form: PriceForm;
+  setForm: (form: PriceForm) => void;
+  isPlatformAdmin: boolean;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Rediger pris">
+        <div className="panel-heading">
+          <div>
+            <h2>Rediger pris</h2>
+            <p>{price.name}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        {!isPlatformAdmin && <p className="modal-copy">Kun PalletProof platformadmin kan ændre priskataloget.</p>}
+        <form className="stack-form" onSubmit={onSubmit}>
+          <label>
+            Pris ekskl. moms, {price.currency}
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={form.unitAmount}
+              onChange={(event) => setForm({ unitAmount: event.target.value })}
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <p className="modal-copy">
+            Enhed: {price.unit_label || price.billing_period}. Stripe price ID kan kobles på senere i metadata/webhook-laget.
+          </p>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Annuller
+            </button>
+            <button className="primary-button" type="submit" disabled={!isPlatformAdmin}>
+              <Check size={16} />
+              Gem pris
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function DeleteDeviceModal({
   device,
   onCancel,
@@ -1500,6 +2007,7 @@ function ShellStateInline({ label }: { label: string }) {
 function headingFor(tab: Tab) {
   if (tab === "devices") return "Enheder og provisioning";
   if (tab === "videos") return "Videoer og deling";
+  if (tab === "billing") return "Billing og storage";
   if (tab === "updates") return "Software rollouts";
   return "Driftsoverblik";
 }
@@ -1522,6 +2030,45 @@ function videoDeviceLabel(video: Video): string {
     relationLabel(video.devices, "display_name") ||
     relationLabel(video.devices, "serial_number")
   );
+}
+
+function priceFor(prices: BillingPrice[], component: BillingPrice["component"]) {
+  return prices.find((price) => price.component === component && price.active);
+}
+
+function minorAmount(price: BillingPrice | undefined) {
+  return price ? numberValue(price.unit_amount_minor) : 0;
+}
+
+function numberValue(value: unknown) {
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatMoney(minor: number, currency = "DKK") {
+  return new Intl.NumberFormat("da-DK", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(minor / 100);
+}
+
+function formatNumber(value: unknown) {
+  return new Intl.NumberFormat("da-DK", {
+    maximumFractionDigits: 2,
+  }).format(numberValue(value));
+}
+
+function formatGb(value: unknown) {
+  return `${formatNumber(value)} GB`;
+}
+
+function storageBarClass(row: SiteBillingUsage) {
+  const pct = numberValue(row.usage_pct);
+  if (pct >= numberValue(row.critical_threshold_pct)) return "critical";
+  if (pct >= numberValue(row.warning_threshold_pct)) return "warning";
+  return "ok";
 }
 
 function uniqueOrganizations(memberships: Membership[]): Organization[] {

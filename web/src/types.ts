@@ -94,3 +94,45 @@ export type SoftwareRollout = {
   enabled: boolean;
   created_at: string;
 };
+
+export type BillingPrice = {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  component: "hardware_setup" | "site_service" | "device_license" | "storage_addon";
+  billing_period: "one_time" | "monthly";
+  currency: string;
+  unit_amount_minor: number;
+  unit_label: string;
+  included_quantity: number | null;
+  taxable: boolean;
+  active: boolean;
+  sort_order: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SiteBillingUsage = {
+  organization_id: string;
+  site_id: string;
+  site_name: string;
+  included_storage_gb: number;
+  extra_storage_gb: number;
+  total_storage_gb: number;
+  used_storage_bytes: number;
+  used_storage_gb: number;
+  usage_pct: number;
+  uploaded_video_count: number;
+  shared_video_count: number;
+  protected_video_count: number;
+  active_device_count: number;
+  billable_device_count: number;
+  hardware_pending_count: number;
+  auto_delete_enabled: boolean;
+  protect_shared_videos: boolean;
+  retention_days: number;
+  warning_threshold_pct: number;
+  critical_threshold_pct: number;
+};

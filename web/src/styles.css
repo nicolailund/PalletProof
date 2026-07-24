@@ -521,6 +521,75 @@ button:disabled {
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 
+.price-list {
+  display: grid;
+  gap: 8px;
+}
+
+.price-row {
+  min-height: 62px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbfcfb;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.price-row strong,
+.price-row span {
+  display: block;
+}
+
+.price-row span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+
+.price-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.storage-cell {
+  min-width: 170px;
+  display: grid;
+  gap: 6px;
+}
+
+.storage-bar {
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+}
+
+.storage-bar span {
+  height: 100%;
+  display: block;
+  margin: 0;
+}
+
+.storage-bar .ok {
+  background: var(--green);
+}
+
+.storage-bar .warning {
+  background: var(--amber);
+}
+
+.storage-bar .critical {
+  background: var(--red);
+}
+
 .share-box {
   margin-bottom: 14px;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -753,6 +822,17 @@ tr:last-child td {
   align-items: center;
 }
 
+.check-row {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  font-weight: 650;
+}
+
+.check-row input {
+  width: 18px;
+  height: 18px;
+}
+
 .password-field .icon-button {
   height: 38px;
 }
@@ -784,7 +864,7 @@ tr:last-child td {
   }
 
   .nav-list {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .nav-button {
