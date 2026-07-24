@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pallet-video-recorder"
-version = "0.2.0"
+version = "0.3.1"
 description = "Raspberry Pi service for scanner-triggered pallet wrapping video capture and cloud upload"
 requires-python = ">=3.11"
 dependencies = [

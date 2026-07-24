@@ -88,9 +88,9 @@ class SupabaseDeviceClient:
         if not signed_url:
             relative_url = str(response.get("url") or "")
             if relative_url:
-                signed_url = self.config.supabase_url.rstrip("/") + relative_url
-        elif signed_url.startswith("/"):
-            signed_url = self.config.supabase_url.rstrip("/") + signed_url
+                signed_url = _absolute_storage_url(self.config.supabase_url, relative_url)
+        else:
+            signed_url = _absolute_storage_url(self.config.supabase_url, signed_url)
         if not token and "token=" in signed_url:
             parsed = urlparse(signed_url)
             token = _query_value(parsed.query, "token")
@@ -332,6 +332,19 @@ def _storage_object_url_path(bucket: str, object_path: str) -> str:
     encoded_bucket = quote(bucket.strip("/"), safe="")
     encoded_object = "/".join(quote(part, safe="") for part in object_path.strip("/").split("/"))
     return f"{encoded_bucket}/{encoded_object}"
+
+
+def _absolute_storage_url(supabase_url: str, url: str) -> str:
+    if url.startswith(("http://", "https://")):
+        return url
+
+    base_url = supabase_url.rstrip("/")
+    relative_url = url if url.startswith("/") else f"/{url}"
+    if relative_url.startswith("/storage/v1/"):
+        return base_url + relative_url
+    if relative_url.startswith("/object/"):
+        return base_url + "/storage/v1" + relative_url
+    return base_url + relative_url
 
 
 def _query_value(query: str, key: str) -> str:

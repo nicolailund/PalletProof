@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pallet_video_recorder.cloud import build_storage_path, read_temperature_c, sha256_file
+from pallet_video_recorder.cloud import _absolute_storage_url, build_storage_path, read_temperature_c, sha256_file
 
 
 class CloudTest(unittest.TestCase):
@@ -29,6 +29,24 @@ class CloudTest(unittest.TestCase):
         self.assertEqual(
             build_storage_path("device-uploads", "PP/000123", "REF/123_20260724_120000.mp4"),
             "device-uploads/PP_000123/REF_123_20260724_120000.mp4",
+        )
+
+    def test_builds_absolute_signed_storage_upload_url(self) -> None:
+        self.assertEqual(
+            _absolute_storage_url(
+                "https://example.supabase.co",
+                "/object/upload/sign/videos/device-uploads/PP/video.mp4?token=abc",
+            ),
+            "https://example.supabase.co/storage/v1/object/upload/sign/videos/device-uploads/PP/video.mp4?token=abc",
+        )
+
+    def test_keeps_absolute_signed_storage_upload_url(self) -> None:
+        self.assertEqual(
+            _absolute_storage_url(
+                "https://example.supabase.co",
+                "https://example.supabase.co/storage/v1/object/upload/sign/videos/video.mp4?token=abc",
+            ),
+            "https://example.supabase.co/storage/v1/object/upload/sign/videos/video.mp4?token=abc",
         )
 
     def test_hashes_file_for_upload_metadata(self) -> None:
