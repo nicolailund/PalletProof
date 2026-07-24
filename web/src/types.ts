@@ -62,6 +62,13 @@ export type Video = {
   storage_path: string;
   status: "pending_upload" | "uploading" | "uploaded" | "failed" | "deleted";
   privacy_status: "not_processed" | "processed" | "failed" | "not_required";
+  privacy_mode?: "not_required" | "local_pi" | "cloud_worker" | "manual";
+  raw_storage_bucket?: string;
+  raw_storage_path?: string;
+  processed_storage_bucket?: string;
+  processed_storage_path?: string;
+  privacy_processed_at?: string | null;
+  privacy_error?: string;
   started_at: string | null;
   ended_at: string | null;
   duration_seconds: number | null;

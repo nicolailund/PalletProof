@@ -151,6 +151,11 @@ Vigtige standarder:
 - Gør sletning automatisk og logget.
 - Gem kun nødvendige metadata sammen med videoerne.
 
+Se også:
+
+- [GDPR og privacy processing](gdpr-privacy-strategy.md)
+- [Prisforslag for PalletProof](pricing-proposal.md)
+
 ## Første praktiske backend-milepæle
 
 1. Multi-tenant database og admin login.

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PalletProof">
+  <rect width="64" height="64" rx="14" fill="#20362d"/>
+  <path d="M12 18.5 32 8l20 10.5v22.8L32 54 12 41.3V18.5Z" fill="#f7fbf8" opacity=".96"/>
+  <path d="M18 23h12v9H18v-9Zm16 0h12v9H34v-9ZM18 36h28v7H18v-7Z" fill="#1f7a4f"/>
+  <path d="M21 46h5m7 0h5m7 0h5" stroke="#26362d" stroke-width="3" stroke-linecap="round"/>
+  <path d="M17 18.5 32 11l15 7.5" stroke="#26362d" stroke-width="3" stroke-linejoin="round" fill="none"/>
+  <path d="M48 20v20.2L32 50.4 16 40.2V20" stroke="#26362d" stroke-width="3" stroke-linejoin="round" fill="none"/>
+  <path d="m26.5 33.2 5 5.2 10-12" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M12 28h8M44 28h8" stroke="#d58a1f" stroke-width="3" stroke-linecap="round"/>
+</svg>

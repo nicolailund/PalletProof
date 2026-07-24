@@ -511,6 +511,10 @@ function App() {
 
   async function handlePrepareShare(video: Video) {
     if (!session) return;
+    if (!videoPrivacyReady(video)) {
+      setError("Videoen kan ikke deles, før privacy-processering er færdig.");
+      return;
+    }
     try {
       const token = randomToken(32);
       const tokenHash = await sha256Hex(token);
@@ -539,13 +543,13 @@ function App() {
   async function handleOpenVideo(video: Video) {
     setVideoPlayer({ video, playbackUrl: "", downloadUrl: "", loading: true, error: "" });
 
-    if (video.status !== "uploaded") {
+    if (video.status !== "uploaded" || !videoPrivacyReady(video)) {
       setVideoPlayer({
         video,
         playbackUrl: "",
         downloadUrl: "",
         loading: false,
-        error: "Videoen er ikke klar til afspilning endnu.",
+        error: video.status !== "uploaded" ? "Videoen er ikke klar til afspilning endnu." : "Videoen afventer privacy-processering.",
       });
       return;
     }
@@ -733,7 +737,7 @@ function App() {
         <section className="login-panel">
           <div className="brand-lockup">
             <div className="brand-mark">
-              <Boxes size={24} />
+              <PalletProofMark size={34} />
             </div>
             <div>
               <h1>PalletProof Admin</h1>
@@ -770,7 +774,7 @@ function App() {
       <aside className="sidebar">
         <div className="brand-lockup compact">
           <div className="brand-mark">
-            <Boxes size={22} />
+            <PalletProofMark size={32} />
           </div>
           <div>
             <strong>PalletProof</strong>
@@ -1229,33 +1233,7 @@ function VideosView({
           </thead>
           <tbody>
             {videos.map((video) => (
-              <tr key={video.id}>
-                <td>
-                  <strong>{video.scanned_id}</strong>
-                  <span>{video.filename}</span>
-                </td>
-                <td>{videoDeviceLabel(video) || "-"}</td>
-                <td>
-                  <Badge tone={video.status === "failed" ? "danger" : "neutral"}>{video.status}</Badge>
-                </td>
-                <td>{video.privacy_status}</td>
-                <td>{video.created_at ? relativeTime(video.created_at) : "-"}</td>
-                <td className="row-actions">
-                  <button
-                    className="icon-text-button"
-                    onClick={() => void onOpenVideo(video)}
-                    disabled={video.status !== "uploaded"}
-                    aria-label={`Se video ${video.scanned_id}`}
-                  >
-                    <Eye size={16} />
-                    Se
-                  </button>
-                  <button className="icon-text-button" onClick={() => void onShare(video)}>
-                    <Share2 size={16} />
-                    Del
-                  </button>
-                </td>
-              </tr>
+              <VideoRow key={video.id} video={video} onOpenVideo={onOpenVideo} onShare={onShare} />
             ))}
             {videos.length === 0 && (
               <tr>
@@ -1268,6 +1246,50 @@ function VideosView({
         </table>
       </div>
     </section>
+  );
+}
+
+function VideoRow({
+  video,
+  onOpenVideo,
+  onShare,
+}: {
+  video: Video;
+  onOpenVideo: (video: Video) => void;
+  onShare: (video: Video) => void;
+}) {
+  const canUseVideo = video.status === "uploaded" && videoPrivacyReady(video);
+
+  return (
+    <tr>
+      <td>
+        <strong>{video.scanned_id}</strong>
+        <span>{video.filename}</span>
+      </td>
+      <td>{videoDeviceLabel(video) || "-"}</td>
+      <td>
+        <Badge tone={video.status === "failed" ? "danger" : "neutral"}>{video.status}</Badge>
+      </td>
+      <td>
+        <Badge tone={privacyTone(video.privacy_status)}>{privacyLabel(video.privacy_status)}</Badge>
+      </td>
+      <td>{video.created_at ? relativeTime(video.created_at) : "-"}</td>
+      <td className="row-actions">
+        <button
+          className="icon-text-button"
+          onClick={() => void onOpenVideo(video)}
+          disabled={!canUseVideo}
+          aria-label={`Se video ${video.scanned_id}`}
+        >
+          <Eye size={16} />
+          Se
+        </button>
+        <button className="icon-text-button" onClick={() => void onShare(video)} disabled={!canUseVideo}>
+          <Share2 size={16} />
+          Del
+        </button>
+      </td>
+    </tr>
   );
 }
 
@@ -1941,6 +1963,10 @@ function Badge({ children, tone }: { children: React.ReactNode; tone: string }) 
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
+function PalletProofMark({ size }: { size: number }) {
+  return <img className="palletproof-mark" src="/palletproof-logo.svg" width={size} height={size} alt="PalletProof" />;
+}
+
 function NavButton({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
   return (
     <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}>
@@ -1965,7 +1991,7 @@ function MissingConfiguration() {
       <section className="login-panel">
         <div className="brand-lockup">
           <div className="brand-mark">
-            <Boxes size={24} />
+            <PalletProofMark size={34} />
           </div>
           <div>
             <h1>Mangler Supabase config</h1>
@@ -1983,7 +2009,7 @@ function ShellState({ label }: { label: string }) {
       <section className="login-panel">
         <div className="brand-lockup">
           <div className="brand-mark">
-            <Boxes size={24} />
+            <PalletProofMark size={34} />
           </div>
           <div>
             <h1>PalletProof Admin</h1>
@@ -2030,6 +2056,24 @@ function videoDeviceLabel(video: Video): string {
     relationLabel(video.devices, "display_name") ||
     relationLabel(video.devices, "serial_number")
   );
+}
+
+function videoPrivacyReady(video: Video) {
+  return video.privacy_status === "processed" || video.privacy_status === "not_required";
+}
+
+function privacyLabel(status: Video["privacy_status"]) {
+  if (status === "processed") return "Processed";
+  if (status === "not_required") return "Ikke påkrævet";
+  if (status === "failed") return "Fejl";
+  return "Afventer";
+}
+
+function privacyTone(status: Video["privacy_status"]) {
+  if (status === "processed") return "success";
+  if (status === "not_required") return "neutral";
+  if (status === "failed") return "danger";
+  return "active";
 }
 
 function priceFor(prices: BillingPrice[], component: BillingPrice["component"]) {
