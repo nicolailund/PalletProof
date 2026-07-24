@@ -163,6 +163,7 @@ textarea:focus {
 .primary-button,
 .secondary-button,
 .ghost-button,
+.link-button,
 .icon-button,
 .icon-text-button,
 .nav-button {
@@ -206,6 +207,13 @@ button:disabled {
   padding: 0 10px;
 }
 
+.link-button {
+  background: transparent;
+  color: var(--green);
+  padding: 0 10px;
+  font-weight: 750;
+}
+
 .icon-button {
   width: 38px;
   background: var(--surface);
@@ -233,6 +241,12 @@ button:disabled {
 .form-error {
   margin: 0;
   color: var(--red);
+  font-size: 13px;
+}
+
+.form-success {
+  margin: 0;
+  color: var(--green);
   font-size: 13px;
 }
 

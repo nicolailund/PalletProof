@@ -286,9 +286,16 @@ const weekdays = [
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authView, setAuthView] = useState<"login" | "forgot" | "reset">(() =>
+    typeof window !== "undefined" && window.location.pathname === "/reset-password" ? "reset" : "login",
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginNotice, setLoginNotice] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -349,7 +356,12 @@ function App() {
 
     const {
       data: { subscription },
-    } = client.auth.onAuthStateChange((_event, nextSession) => {
+    } = client.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthView("reset");
+        setLoginError("");
+        setLoginNotice("");
+      }
       setSession(nextSession);
     });
 
@@ -357,10 +369,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (session) {
+    if (session && authView !== "reset") {
       void loadWorkspace();
     }
-  }, [session]);
+  }, [session, authView]);
 
   const organizations = useMemo(() => {
     const byId = new Map<string, Organization>();
@@ -568,10 +580,61 @@ function App() {
     event.preventDefault();
     const client = requireSupabase();
     setLoginError("");
+    setLoginNotice("");
     const { error: authError } = await client.auth.signInWithPassword({ email, password });
     if (authError) {
       setLoginError(authError.message);
     }
+  }
+
+  async function handleRequestPasswordReset(event: FormEvent) {
+    event.preventDefault();
+    const targetEmail = resetEmail.trim().toLowerCase();
+    if (!targetEmail) {
+      setLoginError("Indtast emailadressen til brugeren.");
+      return;
+    }
+
+    setLoginError("");
+    setLoginNotice("");
+    const { error: resetError } = await requireSupabase().auth.resetPasswordForEmail(targetEmail, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (resetError) {
+      setLoginError(resetError.message);
+      return;
+    }
+
+    setLoginNotice("Hvis emailen findes, er der sendt et link til nulstilling af password.");
+  }
+
+  async function handleUpdateRecoveredPassword(event: FormEvent) {
+    event.preventDefault();
+    if (newPassword.length < 8) {
+      setLoginError("Password skal være mindst 8 tegn.");
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      setLoginError("De to passwords er ikke ens.");
+      return;
+    }
+
+    setLoginError("");
+    setLoginNotice("");
+    const { error: updateError } = await requireSupabase().auth.updateUser({ password: newPassword });
+    if (updateError) {
+      setLoginError(updateError.message);
+      return;
+    }
+
+    await requireSupabase().auth.signOut({ scope: "local" });
+    setSession(null);
+    setPassword("");
+    setNewPassword("");
+    setConfirmNewPassword("");
+    setAuthView("login");
+    window.history.replaceState({}, "", "/");
+    setLoginNotice("Password er opdateret. Log ind med det nye password.");
   }
 
   async function handleLogout() {
@@ -1416,6 +1479,61 @@ function App() {
     return <ShellState label="Indlæser session" />;
   }
 
+  if (authView === "reset") {
+    return (
+      <main className="login-page">
+        <section className="login-panel">
+          <div className="brand-lockup">
+            <div className="brand-mark">
+              <PalletProofMark size={34} />
+            </div>
+            <div>
+              <h1>Nyt password</h1>
+              <p>Vælg et nyt password til PalletProof Admin.</p>
+            </div>
+          </div>
+          <form onSubmit={handleUpdateRecoveredPassword} className="login-form">
+            <label>
+              Nyt password
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+            <label>
+              Gentag nyt password
+              <input
+                type="password"
+                value={confirmNewPassword}
+                onChange={(event) => setConfirmNewPassword(event.target.value)}
+                autoComplete="new-password"
+              />
+            </label>
+            {loginError && <p className="form-error">{loginError}</p>}
+            {loginNotice && <p className="form-success">{loginNotice}</p>}
+            <button type="submit" className="primary-button">
+              <Check size={16} />
+              Gem nyt password
+            </button>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                setAuthView("login");
+                setLoginError("");
+                window.history.replaceState({}, "", "/");
+              }}
+            >
+              Tilbage til login
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
   if (!session) {
     return (
       <main className="login-page">
@@ -1426,29 +1544,77 @@ function App() {
             </div>
             <div>
               <h1>PalletProof Admin</h1>
-              <p>Driftsoverblik for palleoptagelser, enheder og provisioning.</p>
+              <p>
+                {authView === "forgot"
+                  ? "Få tilsendt et link til at nulstille dit password."
+                  : "Driftsoverblik for palleoptagelser, enheder og provisioning."}
+              </p>
             </div>
           </div>
-          <form onSubmit={handleLogin} className="login-form">
-            <label>
-              Email
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
-            </label>
-            <label>
-              Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-              />
-            </label>
-            {loginError && <p className="form-error">{loginError}</p>}
-            <button type="submit" className="primary-button">
-              <KeyRound size={16} />
-              Log ind
-            </button>
-          </form>
+          {authView === "forgot" ? (
+            <form onSubmit={handleRequestPasswordReset} className="login-form">
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(event) => setResetEmail(event.target.value)}
+                  autoComplete="email"
+                />
+              </label>
+              {loginError && <p className="form-error">{loginError}</p>}
+              {loginNotice && <p className="form-success">{loginNotice}</p>}
+              <button type="submit" className="primary-button">
+                <KeyRound size={16} />
+                Send reset-link
+              </button>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setAuthView("login");
+                  setLoginError("");
+                  setLoginNotice("");
+                }}
+              >
+                Tilbage til login
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleLogin} className="login-form">
+              <label>
+                Email
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" />
+              </label>
+              <label>
+                Password
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+              </label>
+              {loginError && <p className="form-error">{loginError}</p>}
+              {loginNotice && <p className="form-success">{loginNotice}</p>}
+              <button type="submit" className="primary-button">
+                <KeyRound size={16} />
+                Log ind
+              </button>
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  setResetEmail(email);
+                  setAuthView("forgot");
+                  setLoginError("");
+                  setLoginNotice("");
+                }}
+              >
+                Glemt password?
+              </button>
+            </form>
+          )}
         </section>
       </main>
     );
