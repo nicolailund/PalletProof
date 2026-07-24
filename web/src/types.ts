@@ -65,6 +65,13 @@ export type Video = {
   storage_bucket: string;
   storage_path: string;
   status: "pending_upload" | "uploading" | "uploaded" | "failed" | "deleted";
+  is_hidden: boolean;
+  hidden_reason: string;
+  hidden_at: string | null;
+  hidden_by: string | null;
+  deletion_reason: string;
+  deleted_at: string | null;
+  deleted_by: string | null;
   privacy_status: "not_processed" | "processed" | "failed" | "not_required";
   privacy_mode?: "not_required" | "local_pi" | "cloud_worker" | "manual";
   raw_storage_bucket?: string;

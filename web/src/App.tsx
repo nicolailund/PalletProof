@@ -91,6 +91,13 @@ type ShareResult = {
   token: string;
 };
 
+type VideoFilters = {
+  scannedId: string;
+  date: string;
+  timeFrom: string;
+  timeTo: string;
+};
+
 type VideoPlayerState = {
   video: Video;
   playbackUrl: string;
@@ -137,6 +144,13 @@ const emptySiteEntitlementForm: SiteEntitlementForm = {
 
 const emptyPriceForm: PriceForm = {
   unitAmount: "0",
+};
+
+const emptyVideoFilters: VideoFilters = {
+  scannedId: "",
+  date: "",
+  timeFrom: "",
+  timeTo: "",
 };
 
 const statusLabel: Record<Device["status"], string> = {
@@ -206,7 +220,11 @@ function App() {
   const [rolloutForm, setRolloutForm] = useState<RolloutForm>(emptyRolloutForm);
   const [shareResult, setShareResult] = useState<ShareResult | null>(null);
   const [videoPlayer, setVideoPlayer] = useState<VideoPlayerState | null>(null);
+  const [hideVideo, setHideVideo] = useState<Video | null>(null);
+  const [restoreVideo, setRestoreVideo] = useState<Video | null>(null);
+  const [deleteVideo, setDeleteVideo] = useState<Video | null>(null);
   const [search, setSearch] = useState("");
+  const [videoFilters, setVideoFilters] = useState<VideoFilters>(emptyVideoFilters);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -257,12 +275,34 @@ function App() {
   const recentEvents = events.slice(0, 8);
   const visibleVideos = videos.filter((video) => {
     const needle = search.trim().toLowerCase();
-    if (!needle) {
-      return true;
+    if (needle) {
+      const haystack = `${video.scanned_id} ${video.filename} ${video.device_serial_number} ${videoDeviceLabel(video)}`.toLowerCase();
+      if (!haystack.includes(needle)) {
+        return false;
+      }
     }
-    return `${video.scanned_id} ${video.filename} ${video.device_serial_number} ${videoDeviceLabel(video)}`
-      .toLowerCase()
-      .includes(needle);
+
+    const scannedIdNeedle = videoFilters.scannedId.trim().toLowerCase();
+    if (scannedIdNeedle && !video.scanned_id.toLowerCase().includes(scannedIdNeedle)) {
+      return false;
+    }
+
+    const videoDate = videoTimestamp(video);
+    if (videoFilters.date && localDateInputValue(videoDate) !== videoFilters.date) {
+      return false;
+    }
+
+    const videoMinutes = localTimeMinutes(videoDate);
+    const fromMinutes = timeFilterMinutes(videoFilters.timeFrom);
+    const toMinutes = timeFilterMinutes(videoFilters.timeTo);
+    if (fromMinutes !== null && (videoMinutes === null || videoMinutes < fromMinutes)) {
+      return false;
+    }
+    if (toMinutes !== null && (videoMinutes === null || videoMinutes > toMinutes)) {
+      return false;
+    }
+
+    return true;
   });
 
   const stats = useMemo(() => {
@@ -538,8 +578,8 @@ function App() {
 
   async function handlePrepareShare(video: Video) {
     if (!session) return;
-    if (!videoPrivacyReady(video)) {
-      setError("Videoen kan ikke deles, før privacy-processering er færdig.");
+    if (!videoCanBeShared(video)) {
+      setError(video.is_hidden ? "Skjulte optagelser kan ikke deles." : "Videoen kan ikke deles, før privacy-processering er færdig.");
       return;
     }
     try {
@@ -570,13 +610,16 @@ function App() {
   async function handleOpenVideo(video: Video) {
     setVideoPlayer({ video, playbackUrl: "", downloadUrl: "", loading: true, error: "" });
 
-    if (video.status !== "uploaded" || !videoPrivacyReady(video)) {
+    if (!videoCanBeOpened(video, isPlatformAdmin)) {
+      const hiddenMessage = video.is_hidden ? `Optagelsen er skjult. Årsag: ${video.hidden_reason || "Ingen årsag angivet"}` : "";
       setVideoPlayer({
         video,
         playbackUrl: "",
         downloadUrl: "",
         loading: false,
-        error: video.status !== "uploaded" ? "Videoen er ikke klar til afspilning endnu." : "Videoen afventer privacy-processering.",
+        error:
+          hiddenMessage ||
+          (video.status !== "uploaded" ? "Videoen er ikke klar til afspilning endnu." : "Videoen afventer privacy-processering."),
       });
       return;
     }
@@ -629,6 +672,88 @@ function App() {
       await loadWorkspace();
     } catch (caught) {
       setError(`Enheden kunne ikke slettes: ${errorMessage(caught)}`);
+    }
+  }
+
+  function canManageVideoVisibility(video: Video) {
+    if (isPlatformAdmin) return true;
+    return memberships.some(
+      (membership) =>
+        membership.organization_id === video.organization_id &&
+        ((membership.site_id === null && (membership.role === "owner" || membership.role === "admin")) ||
+          (membership.site_id === video.site_id &&
+            (membership.role === "owner" || membership.role === "admin" || membership.role === "site_admin"))),
+    );
+  }
+
+  async function handleHideVideo(video: Video, reason: string) {
+    try {
+      const { error: hideError } = await requireSupabase().rpc("hide_video_recording", {
+        p_video_id: video.id,
+        p_reason: reason,
+      });
+      if (hideError) {
+        throw hideError;
+      }
+      setHideVideo(null);
+      setNotice(`Optagelsen ${video.scanned_id} er skjult.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Optagelsen kunne ikke skjules: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleRestoreVideo(video: Video, reason: string) {
+    try {
+      const { error: restoreError } = await requireSupabase().rpc("restore_video_recording", {
+        p_video_id: video.id,
+        p_reason: reason,
+      });
+      if (restoreError) {
+        throw restoreError;
+      }
+      setRestoreVideo(null);
+      setNotice(`Optagelsen ${video.scanned_id} er gjort synlig igen.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Optagelsen kunne ikke gøres synlig: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleDeleteVideo(video: Video, reason: string) {
+    if (!isPlatformAdmin) {
+      setError("Kun PalletProof systemadministrator kan slette videoer.");
+      return;
+    }
+
+    try {
+      const client = requireSupabase();
+      const { error: deleteError } = await client.rpc("delete_video_recording", {
+        p_video_id: video.id,
+        p_reason: reason,
+      });
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      const storageObjects = videoStorageObjects(video);
+      const removalFailures: string[] = [];
+      for (const object of storageObjects) {
+        const { error: removeError } = await client.storage.from(object.bucket).remove([object.path]);
+        if (removeError) {
+          removalFailures.push(`${object.bucket}/${object.path}: ${removeError.message}`);
+        }
+      }
+
+      setDeleteVideo(null);
+      await loadWorkspace();
+      if (removalFailures.length > 0) {
+        setError(`Metadata er markeret slettet, men Storage-filen kunne ikke fjernes: ${removalFailures.join(" · ")}`);
+      } else {
+        setNotice(`Optagelsen ${video.scanned_id} er slettet.`);
+      }
+    } catch (caught) {
+      setError(`Optagelsen kunne ikke slettes: ${errorMessage(caught)}`);
     }
   }
 
@@ -946,8 +1071,24 @@ function App() {
                 videos={visibleVideos}
                 search={search}
                 setSearch={setSearch}
+                filters={videoFilters}
+                setFilters={setVideoFilters}
                 onOpenVideo={handleOpenVideo}
                 onShare={handlePrepareShare}
+                onHideVideo={(video) => {
+                  setHideVideo(video);
+                  setError("");
+                }}
+                onRestoreVideo={(video) => {
+                  setRestoreVideo(video);
+                  setError("");
+                }}
+                onDeleteVideo={(video) => {
+                  setDeleteVideo(video);
+                  setError("");
+                }}
+                canManageVideoVisibility={canManageVideoVisibility}
+                isPlatformAdmin={isPlatformAdmin}
                 shareResult={shareResult}
                 clearShare={() => setShareResult(null)}
               />
@@ -1006,6 +1147,40 @@ function App() {
       )}
 
       {videoPlayer && <VideoPlayerModal state={videoPlayer} onClose={() => setVideoPlayer(null)} />}
+
+      {hideVideo && (
+        <VideoReasonModal
+          video={hideVideo}
+          title="Skjul optagelse"
+          actionLabel="Skjul optagelse"
+          reasonLabel="Årsag"
+          danger={false}
+          description="Optagelsen kan ikke afspilles, downloades eller deles af lokale brugere, men registreringen bliver stående."
+          onCancel={() => setHideVideo(null)}
+          onConfirm={(reason) => void handleHideVideo(hideVideo, reason)}
+        />
+      )}
+
+      {restoreVideo && (
+        <VideoReasonModal
+          video={restoreVideo}
+          title="Gør optagelse synlig"
+          actionLabel="Gør synlig"
+          reasonLabel="Årsag til gendannelse"
+          danger={false}
+          description="Optagelsen bliver igen tilgængelig for brugere, der normalt må se videoer på sitet."
+          onCancel={() => setRestoreVideo(null)}
+          onConfirm={(reason) => void handleRestoreVideo(restoreVideo, reason)}
+        />
+      )}
+
+      {deleteVideo && (
+        <DeleteVideoModal
+          video={deleteVideo}
+          onCancel={() => setDeleteVideo(null)}
+          onConfirm={(reason) => void handleDeleteVideo(deleteVideo, reason)}
+        />
+      )}
 
       {scheduleDevice && (
         <ScannerScheduleModal
@@ -1267,16 +1442,30 @@ function VideosView({
   videos,
   search,
   setSearch,
+  filters,
+  setFilters,
   onOpenVideo,
   onShare,
+  onHideVideo,
+  onRestoreVideo,
+  onDeleteVideo,
+  canManageVideoVisibility,
+  isPlatformAdmin,
   shareResult,
   clearShare,
 }: {
   videos: Video[];
   search: string;
   setSearch: (value: string) => void;
+  filters: VideoFilters;
+  setFilters: (value: VideoFilters) => void;
   onOpenVideo: (video: Video) => void;
   onShare: (video: Video) => void;
+  onHideVideo: (video: Video) => void;
+  onRestoreVideo: (video: Video) => void;
+  onDeleteVideo: (video: Video) => void;
+  canManageVideoVisibility: (video: Video) => boolean;
+  isPlatformAdmin: boolean;
   shareResult: ShareResult | null;
   clearShare: () => void;
 }) {
@@ -1291,6 +1480,33 @@ function VideosView({
           <Search size={16} />
           <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Søg scanned ID eller enhed" />
         </label>
+      </div>
+
+      <div className="video-filter-bar" aria-label="Videofiltre">
+        <label>
+          Scanned ID
+          <input
+            value={filters.scannedId}
+            onChange={(event) => setFilters({ ...filters, scannedId: event.target.value })}
+            placeholder="F.eks. 8717677337552"
+          />
+        </label>
+        <label>
+          Dato
+          <input type="date" value={filters.date} onChange={(event) => setFilters({ ...filters, date: event.target.value })} />
+        </label>
+        <label>
+          Tid fra
+          <input type="time" value={filters.timeFrom} onChange={(event) => setFilters({ ...filters, timeFrom: event.target.value })} />
+        </label>
+        <label>
+          Tid til
+          <input type="time" value={filters.timeTo} onChange={(event) => setFilters({ ...filters, timeTo: event.target.value })} />
+        </label>
+        <button className="secondary-button" type="button" onClick={() => setFilters(emptyVideoFilters)}>
+          <RefreshCcw size={16} />
+          Nulstil
+        </button>
       </div>
 
       {shareResult && (
@@ -1323,7 +1539,17 @@ function VideosView({
           </thead>
           <tbody>
             {videos.map((video) => (
-              <VideoRow key={video.id} video={video} onOpenVideo={onOpenVideo} onShare={onShare} />
+              <VideoRow
+                key={video.id}
+                video={video}
+                onOpenVideo={onOpenVideo}
+                onShare={onShare}
+                onHideVideo={onHideVideo}
+                onRestoreVideo={onRestoreVideo}
+                onDeleteVideo={onDeleteVideo}
+                canManageVisibility={canManageVideoVisibility(video)}
+                isPlatformAdmin={isPlatformAdmin}
+              />
             ))}
             {videos.length === 0 && (
               <tr>
@@ -1343,41 +1569,77 @@ function VideoRow({
   video,
   onOpenVideo,
   onShare,
+  onHideVideo,
+  onRestoreVideo,
+  onDeleteVideo,
+  canManageVisibility,
+  isPlatformAdmin,
 }: {
   video: Video;
   onOpenVideo: (video: Video) => void;
   onShare: (video: Video) => void;
+  onHideVideo: (video: Video) => void;
+  onRestoreVideo: (video: Video) => void;
+  onDeleteVideo: (video: Video) => void;
+  canManageVisibility: boolean;
+  isPlatformAdmin: boolean;
 }) {
-  const canUseVideo = video.status === "uploaded" && videoPrivacyReady(video);
+  const canOpenVideo = videoCanBeOpened(video, isPlatformAdmin);
+  const canShareVideo = videoCanBeShared(video);
+  const canHideVideo = canManageVisibility && video.status !== "deleted" && !video.is_hidden;
+  const canRestoreVideo = canManageVisibility && video.status !== "deleted" && video.is_hidden;
 
   return (
     <tr>
       <td>
         <strong>{video.scanned_id}</strong>
         <span>{video.filename}</span>
+        {video.is_hidden && <span className="danger-text">Skjult: {video.hidden_reason || "Ingen årsag angivet"}</span>}
+        {video.status === "deleted" && <span className="danger-text">Slettet: {video.deletion_reason || "Ingen årsag angivet"}</span>}
       </td>
       <td>{videoDeviceLabel(video) || "-"}</td>
       <td>
         <Badge tone={video.status === "failed" ? "danger" : "neutral"}>{video.status}</Badge>
       </td>
       <td>
-        <Badge tone={privacyTone(video.privacy_status)}>{privacyLabel(video.privacy_status)}</Badge>
+        {video.is_hidden ? (
+          <Badge tone="danger">Skjult</Badge>
+        ) : (
+          <Badge tone={privacyTone(video.privacy_status)}>{privacyLabel(video.privacy_status)}</Badge>
+        )}
       </td>
       <td>{video.created_at ? relativeTime(video.created_at) : "-"}</td>
       <td className="row-actions">
         <button
           className="icon-text-button"
           onClick={() => void onOpenVideo(video)}
-          disabled={!canUseVideo}
+          disabled={!canOpenVideo}
           aria-label={`Se video ${video.scanned_id}`}
         >
           <Eye size={16} />
           Se
         </button>
-        <button className="icon-text-button" onClick={() => void onShare(video)} disabled={!canUseVideo}>
+        <button className="icon-text-button" onClick={() => void onShare(video)} disabled={!canShareVideo}>
           <Share2 size={16} />
           Del
         </button>
+        {canHideVideo && (
+          <button className="icon-text-button" onClick={() => onHideVideo(video)}>
+            <EyeOff size={16} />
+            Skjul
+          </button>
+        )}
+        {canRestoreVideo && (
+          <button className="icon-text-button" onClick={() => onRestoreVideo(video)}>
+            <Eye size={16} />
+            Gendan
+          </button>
+        )}
+        {isPlatformAdmin && video.status !== "deleted" && (
+          <button className="icon-button danger" onClick={() => onDeleteVideo(video)} aria-label={`Slet video ${video.scanned_id}`}>
+            <Trash2 size={16} />
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -2052,6 +2314,127 @@ function PriceModal({
   );
 }
 
+function VideoReasonModal({
+  video,
+  title,
+  actionLabel,
+  reasonLabel,
+  description,
+  danger,
+  onCancel,
+  onConfirm,
+}: {
+  video: Video;
+  title: string;
+  actionLabel: string;
+  reasonLabel: string;
+  description: string;
+  danger: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  const canSubmit = reason.trim().length >= 3;
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (canSubmit) {
+      onConfirm(reason.trim());
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="panel-heading">
+          <div>
+            <h2>{title}</h2>
+            <p>{video.scanned_id}</p>
+          </div>
+          <button className="icon-button" onClick={onCancel} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <form className="stack-form" onSubmit={handleSubmit}>
+          <p className={danger ? "danger-copy" : "modal-copy"}>{description}</p>
+          <label>
+            {reasonLabel}
+            <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} autoFocus />
+          </label>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>
+              Annuller
+            </button>
+            <button className={danger ? "primary-button danger" : "primary-button"} type="submit" disabled={!canSubmit}>
+              <Check size={16} />
+              {actionLabel}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function DeleteVideoModal({
+  video,
+  onCancel,
+  onConfirm,
+}: {
+  video: Video;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const [reason, setReason] = useState("");
+  const canDelete = confirmation === "SLET" && reason.trim().length >= 3;
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (canDelete) {
+      onConfirm(reason.trim());
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Slet video">
+        <div className="panel-heading">
+          <div>
+            <h2>Slet video</h2>
+            <p>{video.scanned_id}</p>
+          </div>
+          <button className="icon-button" onClick={onCancel} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <form className="stack-form" onSubmit={handleSubmit}>
+          <p className="danger-copy">
+            Kun PalletProof systemadministrator kan gøre dette. Metadata markeres som slettet, delingslinks tilbagekaldes, og selve videofilen fjernes fra Storage.
+          </p>
+          <label>
+            Årsag
+            <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={4} />
+          </label>
+          <label>
+            Skriv SLET for at fortsætte
+            <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus />
+          </label>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>
+              Annuller
+            </button>
+            <button className="primary-button danger" type="submit" disabled={!canDelete}>
+              <Trash2 size={16} />
+              Slet video
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function DeleteDeviceModal({
   device,
   onCancel,
@@ -2239,6 +2622,66 @@ function videoDeviceLabel(video: Video): string {
 
 function videoPrivacyReady(video: Video) {
   return video.privacy_status === "processed" || video.privacy_status === "not_required";
+}
+
+function videoCanBeOpened(video: Video, isPlatformAdmin: boolean) {
+  return video.status === "uploaded" && videoPrivacyReady(video) && (!video.is_hidden || isPlatformAdmin);
+}
+
+function videoCanBeShared(video: Video) {
+  return video.status === "uploaded" && videoPrivacyReady(video) && !video.is_hidden;
+}
+
+function videoStorageObjects(video: Video) {
+  const objects = new Map<string, { bucket: string; path: string }>();
+  addStorageObject(objects, video.storage_bucket, video.storage_path);
+  addStorageObject(objects, video.raw_storage_bucket, video.raw_storage_path);
+  addStorageObject(objects, video.processed_storage_bucket, video.processed_storage_path);
+  return Array.from(objects.values());
+}
+
+function addStorageObject(objects: Map<string, { bucket: string; path: string }>, bucket: string | undefined, path: string | undefined) {
+  const safeBucket = (bucket || "").trim();
+  const safePath = (path || "").trim();
+  if (!safeBucket || !safePath) {
+    return;
+  }
+  objects.set(`${safeBucket}/${safePath}`, { bucket: safeBucket, path: safePath });
+}
+
+function videoTimestamp(video: Video) {
+  return video.started_at || video.created_at || video.ended_at || "";
+}
+
+function localDateInputValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function localTimeMinutes(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.getHours() * 60 + date.getMinutes();
+}
+
+function timeFilterMinutes(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    return null;
+  }
+  const [hours, minutes] = value.split(":").map(Number);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours > 23 || minutes > 59) {
+    return null;
+  }
+  return hours * 60 + minutes;
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
 }
 
 function privacyLabel(status: Video["privacy_status"]) {

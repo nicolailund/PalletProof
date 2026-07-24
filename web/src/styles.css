@@ -626,6 +626,18 @@ button:disabled {
   margin-top: 2px;
 }
 
+.video-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(150px, 0.8fr) minmax(120px, 0.6fr) minmax(120px, 0.6fr) auto;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.video-filter-bar label {
+  min-width: 0;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -665,6 +677,10 @@ td span {
   margin-top: 3px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.danger-text {
+  color: var(--red);
 }
 
 tr:last-child td {
@@ -965,7 +981,8 @@ tr:last-child td {
   }
 
   .panel-heading,
-  .share-box {
+  .share-box,
+  .video-filter-bar {
     grid-template-columns: 1fr;
     display: grid;
   }
