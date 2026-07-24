@@ -723,6 +723,11 @@ tr:last-child td {
   color: var(--red);
 }
 
+.badge.warning {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
 .badge.neutral {
   background: var(--surface-strong);
   color: var(--muted-strong);

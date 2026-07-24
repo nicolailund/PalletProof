@@ -41,14 +41,55 @@ import type {
   Site,
   SiteBillingUsage,
   SoftwareRollout,
+  UserRole,
   Video,
 } from "./types";
 
-type Tab = "overview" | "devices" | "videos" | "billing" | "updates";
+type Tab = "overview" | "devices" | "videos" | "billing" | "admin" | "updates";
 
 type DeviceForm = {
   serialNumber: string;
   displayName: string;
+  siteId: string;
+  acceptedFees: boolean;
+};
+
+type OrganizationForm = {
+  name: string;
+  slug: string;
+  legalName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  address: string;
+  billingAddress: string;
+  firstAdminEmail: string;
+  firstAdminName: string;
+};
+
+type OrganizationProfileForm = {
+  name: string;
+  legalName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  address: string;
+  billingAddress: string;
+};
+
+type SiteForm = {
+  name: string;
+  slug: string;
+  timezone: string;
+  address: string;
+  acceptedSiteFee: boolean;
+  acceptedStorageOverage: boolean;
+};
+
+type InviteUserForm = {
+  email: string;
+  fullName: string;
+  role: "org_admin" | "site_admin" | "site_operator";
   siteId: string;
 };
 
@@ -109,6 +150,46 @@ type VideoPlayerState = {
 const emptyDeviceForm: DeviceForm = {
   serialNumber: "",
   displayName: "",
+  siteId: "",
+  acceptedFees: false,
+};
+
+const emptyOrganizationForm: OrganizationForm = {
+  name: "",
+  slug: "",
+  legalName: "",
+  contactName: "",
+  contactEmail: "",
+  contactPhone: "",
+  address: "",
+  billingAddress: "",
+  firstAdminEmail: "",
+  firstAdminName: "",
+};
+
+const emptyOrganizationProfileForm: OrganizationProfileForm = {
+  name: "",
+  legalName: "",
+  contactName: "",
+  contactEmail: "",
+  contactPhone: "",
+  address: "",
+  billingAddress: "",
+};
+
+const emptySiteForm: SiteForm = {
+  name: "",
+  slug: "",
+  timezone: "Europe/Copenhagen",
+  address: "",
+  acceptedSiteFee: false,
+  acceptedStorageOverage: false,
+};
+
+const emptyInviteUserForm: InviteUserForm = {
+  email: "",
+  fullName: "",
+  role: "site_operator",
   siteId: "",
 };
 
@@ -203,6 +284,10 @@ function App() {
   const [selectedOrgId, setSelectedOrgId] = useState("");
   const [selectedSiteId, setSelectedSiteId] = useState("all");
   const [deviceForm, setDeviceForm] = useState<DeviceForm>(emptyDeviceForm);
+  const [organizationForm, setOrganizationForm] = useState<OrganizationForm>(emptyOrganizationForm);
+  const [organizationProfileForm, setOrganizationProfileForm] = useState<OrganizationProfileForm>(emptyOrganizationProfileForm);
+  const [siteForm, setSiteForm] = useState<SiteForm>(emptySiteForm);
+  const [inviteUserForm, setInviteUserForm] = useState<InviteUserForm>(emptyInviteUserForm);
   const [provisionDevice, setProvisionDevice] = useState<Device | null>(null);
   const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm);
   const [deleteDevice, setDeleteDevice] = useState<Device | null>(null);
@@ -266,12 +351,18 @@ function App() {
 
   const selectedOrganization = organizations.find((organization) => organization.id === selectedOrgId) ?? organizations[0];
   const selectedSite = selectedSiteId === "all" ? null : sites.find((site) => site.id === selectedSiteId) ?? null;
+  const currentUserOrgRole = selectedOrganization ? strongestOrganizationRole(memberships, selectedOrganization.id, isPlatformAdmin) : "";
+  const customerProfileComplete = hasCompleteOrganizationProfile(selectedOrganization);
+  const canManageOrganizationProfile = Boolean(selectedOrganization && (isPlatformAdmin || currentUserOrgRole === "org_admin"));
+  const canCreateSite = Boolean(selectedOrganization && (isPlatformAdmin || currentUserOrgRole === "org_admin"));
+  const canInviteUsers = Boolean(selectedOrganization && (isPlatformAdmin || currentUserOrgRole === "org_admin" || currentUserOrgRole === "site_admin"));
+  const canCreateDevice = Boolean(selectedOrganization && (isPlatformAdmin || currentUserOrgRole === "org_admin" || currentUserOrgRole === "site_admin"));
   const canManageBilling = memberships.some(
     (membership) =>
       membership.organization_id === selectedOrganization?.id &&
       membership.site_id === null &&
-      (membership.role === "owner" || membership.role === "admin"),
-  );
+      (membership.role === "owner" || membership.role === "admin" || membership.role === "org_admin"),
+  ) || isPlatformAdmin;
   const recentEvents = events.slice(0, 8);
   const visibleVideos = videos.filter((video) => {
     const needle = search.trim().toLowerCase();
@@ -312,6 +403,23 @@ function App() {
     const failedVideos = videos.filter((video) => video.status === "failed").length;
     return { online, recording, unprovisioned, failedVideos };
   }, [devices, videos]);
+
+  useEffect(() => {
+    if (!selectedOrganization) {
+      setOrganizationProfileForm(emptyOrganizationProfileForm);
+      return;
+    }
+    setOrganizationProfileForm(organizationToProfileForm(selectedOrganization));
+  }, [
+    selectedOrganization?.id,
+    selectedOrganization?.name,
+    selectedOrganization?.legal_name,
+    selectedOrganization?.contact_name,
+    selectedOrganization?.contact_email,
+    selectedOrganization?.contact_phone,
+    selectedOrganization?.address,
+    selectedOrganization?.billing_address,
+  ]);
 
   async function loadWorkspace(nextOrgId = selectedOrgId, nextSiteId = selectedSiteId) {
     const client = requireSupabase();
@@ -453,6 +561,19 @@ function App() {
   async function handleAddDevice(event: FormEvent) {
     event.preventDefault();
     if (!selectedOrganization) return;
+    if (!canCreateDevice) {
+      setError("Du har ikke rettighed til at oprette enheder.");
+      return;
+    }
+    if (!deviceForm.acceptedFees) {
+      setError("Du skal acceptere hardware-opstart, månedlig enhedslicens og eventuelt dataforbrug før enheden oprettes.");
+      return;
+    }
+    if (!customerProfileComplete) {
+      setError("Kundestamdata skal udfyldes, før der kan oprettes enheder.");
+      setTab("admin");
+      return;
+    }
 
     const serialNumber = deviceForm.serialNumber.trim();
     if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(serialNumber)) {
@@ -481,12 +602,267 @@ function App() {
       return;
     }
 
+    await recordBillingAcceptance("device_created", {
+      site_id: siteId,
+      device_id: insertedDevice.id,
+      summary: {
+        serial_number: serialNumber,
+        display_name: deviceForm.displayName.trim(),
+        hardware_setup: priceSummary(priceFor(billingPrices, "hardware_setup")),
+        monthly_device_license: priceSummary(priceFor(billingPrices, "device_license")),
+        storage_overage: priceSummary(priceFor(billingPrices, "storage_addon")),
+        billing_rule: "Device license is billed only when the device has been provisioned for more than 5 days in the calendar month.",
+      },
+    });
+
     setDeviceForm({ ...emptyDeviceForm, siteId });
     setNotice(`Enhed ${serialNumber} er oprettet.`);
     if (insertedDevice) {
       setDevices((current) => [insertedDevice as Device, ...current]);
     }
     await loadWorkspace();
+  }
+
+  async function handleAddOrganization(event: FormEvent) {
+    event.preventDefault();
+    if (!isPlatformAdmin) {
+      setError("Kun system_admin kan oprette kunder.");
+      return;
+    }
+
+    const name = organizationForm.name.trim();
+    const slug = safeSlug(organizationForm.slug || name);
+    if (!name || !slug || !organizationForm.firstAdminEmail.trim()) {
+      setError("Kundenavn, slug og første orgadmin email er påkrævet.");
+      return;
+    }
+
+    try {
+      const client = requireSupabase();
+      const { data: organization, error: orgError } = await client
+        .from("organizations")
+        .insert({
+          name,
+          slug,
+          legal_name: organizationForm.legalName.trim() || name,
+          contact_name: organizationForm.contactName.trim(),
+          contact_email: organizationForm.contactEmail.trim(),
+          contact_phone: organizationForm.contactPhone.trim(),
+          address: organizationForm.address.trim(),
+          billing_address: organizationForm.billingAddress.trim(),
+        })
+        .select("*")
+        .single();
+      if (orgError) {
+        throw orgError;
+      }
+
+      await invokeInviteUser({
+        email: organizationForm.firstAdminEmail,
+        full_name: organizationForm.firstAdminName,
+        organization_id: organization.id,
+        site_id: null,
+        role: "org_admin",
+      });
+
+      setOrganizationForm(emptyOrganizationForm);
+      setNotice(`Kunde ${name} er oprettet, og orgadmin er inviteret.`);
+      await loadWorkspace(organization.id, "all");
+      setTab("admin");
+    } catch (caught) {
+      setError(`Kunden kunne ikke oprettes: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleSaveOrganizationProfile(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedOrganization) return;
+    if (!canManageOrganizationProfile) {
+      setError("Kun system_admin eller orgadmin kan opdatere kundestamdata.");
+      return;
+    }
+
+    const name = organizationProfileForm.name.trim();
+    const legalName = organizationProfileForm.legalName.trim();
+    const contactName = organizationProfileForm.contactName.trim();
+    const contactEmail = organizationProfileForm.contactEmail.trim();
+    const contactPhone = organizationProfileForm.contactPhone.trim();
+    const address = organizationProfileForm.address.trim();
+    const billingAddress = organizationProfileForm.billingAddress.trim();
+
+    if (!name || !contactName || !contactEmail || !contactPhone || !address || !billingAddress) {
+      setError("Kundestamdata skal udfyldes med navn, adresse, email, telefon og faktureringsadresse.");
+      return;
+    }
+
+    try {
+      const client = requireSupabase();
+      const { error: organizationError } = await client
+        .from("organizations")
+        .update({
+          name,
+          legal_name: legalName || name,
+          contact_name: contactName,
+          contact_email: contactEmail,
+          contact_phone: contactPhone,
+          address,
+          billing_address: billingAddress,
+        })
+        .eq("id", selectedOrganization.id);
+      if (organizationError) {
+        throw organizationError;
+      }
+
+      const { error: billingError } = await client.from("organization_billing").upsert({
+        organization_id: selectedOrganization.id,
+        billing_name: legalName || name,
+        billing_email: contactEmail,
+        billing_address: billingAddress,
+      });
+      if (billingError) {
+        throw billingError;
+      }
+
+      setNotice(`Kundestamdata opdateret for ${name}.`);
+      await loadWorkspace(selectedOrganization.id, selectedSiteId);
+    } catch (caught) {
+      setError(`Kundestamdata kunne ikke gemmes: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleAddSite(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedOrganization) return;
+    if (!canCreateSite) {
+      setError("Du har ikke rettighed til at oprette sites.");
+      return;
+    }
+    if (!customerProfileComplete) {
+      setError("Kundestamdata skal udfyldes, før der kan oprettes sites.");
+      setTab("admin");
+      return;
+    }
+    if (!siteForm.acceptedSiteFee || !siteForm.acceptedStorageOverage) {
+      setError("Du skal acceptere site service fee og eventuelle storage-overage fees før sitet oprettes.");
+      return;
+    }
+
+    const name = siteForm.name.trim();
+    const slug = safeSlug(siteForm.slug || name);
+    if (!name || !slug) {
+      setError("Site-navn og slug er påkrævet.");
+      return;
+    }
+    if (!siteForm.address.trim()) {
+      setError("Site-adresse er påkrævet.");
+      return;
+    }
+
+    try {
+      const client = requireSupabase();
+      const { data: site, error: siteError } = await client
+        .from("sites")
+        .insert({
+          organization_id: selectedOrganization.id,
+          name,
+          slug,
+          timezone: siteForm.timezone.trim() || "Europe/Copenhagen",
+          address: siteForm.address.trim(),
+        })
+        .select("*")
+        .single();
+      if (siteError) {
+        throw siteError;
+      }
+
+      await recordBillingAcceptance("site_created", {
+        site_id: site.id,
+        summary: {
+          site_name: name,
+          site_address: siteForm.address.trim(),
+          site_service: priceSummary(priceFor(billingPrices, "site_service")),
+          included_storage_gb: 250,
+          storage_overage: priceSummary(priceFor(billingPrices, "storage_addon")),
+          billing_rule: "Site service fee is billed only in months where the site has at least one billable device.",
+        },
+      });
+      await recordBillingAcceptance("storage_overage", {
+        site_id: site.id,
+        summary: {
+          accepted_overage_pricing: priceSummary(priceFor(billingPrices, "storage_addon")),
+          note: "Customer admin accepted fees for data usage above included storage.",
+        },
+      });
+
+      setSiteForm(emptySiteForm);
+      setNotice(`Site ${name} er oprettet.`);
+      await loadWorkspace(selectedOrganization.id, site.id);
+      setTab("devices");
+    } catch (caught) {
+      setError(`Sitet kunne ikke oprettes: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleInviteUser(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedOrganization) return;
+    if (!canInviteUsers) {
+      setError("Du har ikke rettighed til at invitere brugere.");
+      return;
+    }
+
+    const role = inviteUserForm.role;
+    const siteId = role === "org_admin" ? null : inviteUserForm.siteId || selectedSite?.id || null;
+    if (role !== "org_admin" && !siteId) {
+      setError("Vælg et site til site_admin eller site_operator.");
+      return;
+    }
+    if (currentUserOrgRole === "site_admin" && role === "org_admin") {
+      setError("Site admins kan ikke oprette orgadmins.");
+      return;
+    }
+
+    try {
+      await invokeInviteUser({
+        email: inviteUserForm.email,
+        full_name: inviteUserForm.fullName,
+        organization_id: selectedOrganization.id,
+        site_id: siteId,
+        role,
+      });
+      setInviteUserForm({ ...emptyInviteUserForm, siteId: inviteUserForm.siteId });
+      setNotice(`Invitation sendt til ${inviteUserForm.email.trim()}.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Brugeren kunne ikke inviteres: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function invokeInviteUser(payload: Record<string, unknown>) {
+    const { error: inviteError } = await requireSupabase().functions.invoke("invite-user", {
+      body: payload,
+    });
+    if (inviteError) {
+      throw inviteError;
+    }
+  }
+
+  async function recordBillingAcceptance(
+    acceptanceType: "site_created" | "device_created" | "storage_overage",
+    options: { site_id?: string | null; device_id?: string | null; summary: Record<string, unknown> },
+  ) {
+    if (!selectedOrganization || !session) return;
+    const { error: acceptanceError } = await requireSupabase().from("billing_acceptances").insert({
+      organization_id: selectedOrganization.id,
+      site_id: options.site_id ?? null,
+      device_id: options.device_id ?? null,
+      accepted_by: session.user.id,
+      acceptance_type: acceptanceType,
+      summary: options.summary,
+    });
+    if (acceptanceError) {
+      throw acceptanceError;
+    }
   }
 
   async function handleGenerateProvisioningQr(event: FormEvent) {
@@ -548,6 +924,10 @@ function App() {
 
   async function handleCreateRollout(event: FormEvent) {
     event.preventDefault();
+    if (!isPlatformAdmin) {
+      setError("Kun system_admin kan oprette software rollouts.");
+      return;
+    }
     const client = requireSupabase();
     const updateId = rolloutForm.updateId.trim();
     if (!updateId) {
@@ -980,6 +1360,7 @@ function App() {
           <NavButton active={tab === "devices"} icon={<QrCode size={17} />} label="Enheder" onClick={() => setTab("devices")} />
           <NavButton active={tab === "videos"} icon={<Film size={17} />} label="Videoer" onClick={() => setTab("videos")} />
           <NavButton active={tab === "billing"} icon={<CreditCard size={17} />} label="Billing" onClick={() => setTab("billing")} />
+          <NavButton active={tab === "admin"} icon={<ShieldCheck size={17} />} label="Admin" onClick={() => setTab("admin")} />
           <NavButton active={tab === "updates"} icon={<RefreshCcw size={17} />} label="Updates" onClick={() => setTab("updates")} />
         </nav>
 
@@ -1031,7 +1412,7 @@ function App() {
 
         {loading && <div className="loading-line" />}
 
-        {memberships.length === 0 ? (
+        {memberships.length === 0 && !isPlatformAdmin ? (
           <EmptyState
             title="Ingen adgang endnu"
             text={`Logget ind som ${session.user.email ?? session.user.id}. User ID: ${session.user.id}`}
@@ -1055,6 +1436,10 @@ function App() {
                 sites={sites}
                 deviceForm={deviceForm}
                 setDeviceForm={setDeviceForm}
+                prices={billingPrices}
+                canCreateDevice={canCreateDevice}
+                canManageDevices={canCreateDevice}
+                customerProfileComplete={customerProfileComplete}
                 onAddDevice={handleAddDevice}
                 onProvision={openProvisioning}
                 onResetQr={(device) => void openResetQr(device)}
@@ -1102,6 +1487,34 @@ function App() {
                 isPlatformAdmin={isPlatformAdmin}
                 onEditEntitlement={openEditEntitlement}
                 onEditPrice={openEditPrice}
+              />
+            )}
+
+            {tab === "admin" && (
+              <AdminView
+                organizations={organizations}
+                selectedOrganization={selectedOrganization}
+                sites={sites}
+                memberships={memberships}
+                organizationForm={organizationForm}
+                setOrganizationForm={setOrganizationForm}
+                organizationProfileForm={organizationProfileForm}
+                setOrganizationProfileForm={setOrganizationProfileForm}
+                siteForm={siteForm}
+                setSiteForm={setSiteForm}
+                inviteUserForm={inviteUserForm}
+                setInviteUserForm={setInviteUserForm}
+                prices={billingPrices}
+                isPlatformAdmin={isPlatformAdmin}
+                customerProfileComplete={customerProfileComplete}
+                canManageOrganizationProfile={canManageOrganizationProfile}
+                canCreateSite={canCreateSite}
+                canInviteUsers={canInviteUsers}
+                currentUserOrgRole={currentUserOrgRole}
+                onAddOrganization={handleAddOrganization}
+                onSaveOrganizationProfile={handleSaveOrganizationProfile}
+                onAddSite={handleAddSite}
+                onInviteUser={handleInviteUser}
               />
             )}
 
@@ -1308,6 +1721,10 @@ function DevicesView({
   sites,
   deviceForm,
   setDeviceForm,
+  prices,
+  canCreateDevice,
+  canManageDevices,
+  customerProfileComplete,
   onAddDevice,
   onProvision,
   onResetQr,
@@ -1318,6 +1735,10 @@ function DevicesView({
   sites: Site[];
   deviceForm: DeviceForm;
   setDeviceForm: (form: DeviceForm) => void;
+  prices: BillingPrice[];
+  canCreateDevice: boolean;
+  canManageDevices: boolean;
+  customerProfileComplete: boolean;
   onAddDevice: (event: FormEvent) => void;
   onProvision: (device: Device) => void;
   onResetQr: (device: Device) => void;
@@ -1334,12 +1755,15 @@ function DevicesView({
           </div>
         </div>
         <form className="stack-form" onSubmit={onAddDevice}>
+          {!canCreateDevice && <p className="modal-copy">Kun orgadmin eller site admin kan oprette enheder.</p>}
+          {canCreateDevice && !customerProfileComplete && <p className="modal-copy">Udfyld kundestamdata før enheder oprettes.</p>}
           <label>
             Serienummer
             <input
               value={deviceForm.serialNumber}
               onChange={(event) => setDeviceForm({ ...deviceForm, serialNumber: event.target.value })}
               placeholder="PP-000001"
+              disabled={!canCreateDevice}
             />
           </label>
           <label>
@@ -1348,11 +1772,16 @@ function DevicesView({
               value={deviceForm.displayName}
               onChange={(event) => setDeviceForm({ ...deviceForm, displayName: event.target.value })}
               placeholder="Foliering 01"
+              disabled={!canCreateDevice}
             />
           </label>
           <label>
             Site
-            <select value={deviceForm.siteId} onChange={(event) => setDeviceForm({ ...deviceForm, siteId: event.target.value })}>
+            <select
+              value={deviceForm.siteId}
+              onChange={(event) => setDeviceForm({ ...deviceForm, siteId: event.target.value })}
+              disabled={!canCreateDevice}
+            >
               {sites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name}
@@ -1360,7 +1789,23 @@ function DevicesView({
               ))}
             </select>
           </label>
-          <button className="primary-button" type="submit">
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={deviceForm.acceptedFees}
+              onChange={(event) => setDeviceForm({ ...deviceForm, acceptedFees: event.target.checked })}
+              disabled={!canCreateDevice}
+            />
+            Jeg accepterer hardware-opstart. Enhedslicens faktureres kun i måneder, hvor enheden har været provisioneret i mere end 5 dage.
+          </label>
+          <p className="modal-copy">
+            {feeSummaryText([
+              ["Hardware", priceFor(prices, "hardware_setup")],
+              ["Enhedslicens", priceFor(prices, "device_license")],
+              ["Ekstra storage", priceFor(prices, "storage_addon")],
+            ])}
+          </p>
+          <button className="primary-button" type="submit" disabled={!canCreateDevice || !customerProfileComplete || !deviceForm.acceptedFees}>
             <Plus size={16} />
             Opret enhed
           </button>
@@ -1405,21 +1850,25 @@ function DevicesView({
                   <td>{formatTemperature(device.metadata?.temperature_c)}</td>
                   <td>{device.last_heartbeat_at ? relativeTime(device.last_heartbeat_at) : "Aldrig"}</td>
                   <td className="row-actions">
-                    <button className="icon-text-button" onClick={() => onSchedule(device)}>
-                      <Clock size={16} />
-                      Sleep
-                    </button>
-                    <button className="icon-text-button" onClick={() => onProvision(device)}>
-                      <QrCode size={16} />
-                      QR
-                    </button>
-                    <button className="icon-text-button" onClick={() => onResetQr(device)}>
-                      <RefreshCcw size={16} />
-                      Reset
-                    </button>
-                    <button className="icon-button danger" onClick={() => onDeleteDevice(device)} aria-label={`Slet ${device.serial_number}`}>
-                      <Trash2 size={16} />
-                    </button>
+                    {canManageDevices && (
+                      <>
+                        <button className="icon-text-button" onClick={() => onSchedule(device)}>
+                          <Clock size={16} />
+                          Sleep
+                        </button>
+                        <button className="icon-text-button" onClick={() => onProvision(device)}>
+                          <QrCode size={16} />
+                          QR
+                        </button>
+                        <button className="icon-text-button" onClick={() => onResetQr(device)}>
+                          <RefreshCcw size={16} />
+                          Reset
+                        </button>
+                        <button className="icon-button danger" onClick={() => onDeleteDevice(device)} aria-label={`Slet ${device.serial_number}`}>
+                          <Trash2 size={16} />
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1432,6 +1881,484 @@ function DevicesView({
               )}
             </tbody>
           </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AdminView({
+  organizations,
+  selectedOrganization,
+  sites,
+  memberships,
+  organizationForm,
+  setOrganizationForm,
+  organizationProfileForm,
+  setOrganizationProfileForm,
+  siteForm,
+  setSiteForm,
+  inviteUserForm,
+  setInviteUserForm,
+  prices,
+  isPlatformAdmin,
+  customerProfileComplete,
+  canManageOrganizationProfile,
+  canCreateSite,
+  canInviteUsers,
+  currentUserOrgRole,
+  onAddOrganization,
+  onSaveOrganizationProfile,
+  onAddSite,
+  onInviteUser,
+}: {
+  organizations: Organization[];
+  selectedOrganization: Organization | undefined;
+  sites: Site[];
+  memberships: Membership[];
+  organizationForm: OrganizationForm;
+  setOrganizationForm: (form: OrganizationForm) => void;
+  organizationProfileForm: OrganizationProfileForm;
+  setOrganizationProfileForm: (form: OrganizationProfileForm) => void;
+  siteForm: SiteForm;
+  setSiteForm: (form: SiteForm) => void;
+  inviteUserForm: InviteUserForm;
+  setInviteUserForm: (form: InviteUserForm) => void;
+  prices: BillingPrice[];
+  isPlatformAdmin: boolean;
+  customerProfileComplete: boolean;
+  canManageOrganizationProfile: boolean;
+  canCreateSite: boolean;
+  canInviteUsers: boolean;
+  currentUserOrgRole: string;
+  onAddOrganization: (event: FormEvent) => void;
+  onSaveOrganizationProfile: (event: FormEvent) => void;
+  onAddSite: (event: FormEvent) => void;
+  onInviteUser: (event: FormEvent) => void;
+}) {
+  const inviteRoles =
+    currentUserOrgRole === "site_admin"
+      ? (["site_admin", "site_operator"] as InviteUserForm["role"][])
+      : (["org_admin", "site_admin", "site_operator"] as InviteUserForm["role"][]);
+  const inviteRequiresSite = inviteUserForm.role !== "org_admin";
+
+  return (
+    <div className="content-grid">
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Opret kunde</h2>
+            <p>Kun system_admin</p>
+          </div>
+        </div>
+        <form className="stack-form" onSubmit={onAddOrganization}>
+          {!isPlatformAdmin && <p className="modal-copy">Kun PalletProof system_admin kan oprette nye kunder.</p>}
+          <label>
+            Kundenavn
+            <input
+              value={organizationForm.name}
+              onChange={(event) =>
+                setOrganizationForm({
+                  ...organizationForm,
+                  name: event.target.value,
+                  slug: organizationForm.slug || safeSlug(event.target.value),
+                })
+              }
+              placeholder="Rhenus"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <label>
+            Slug
+            <input
+              value={organizationForm.slug}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, slug: safeSlug(event.target.value) })}
+              placeholder="rhenus"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <label>
+            Første orgadmin email
+            <input
+              type="email"
+              value={organizationForm.firstAdminEmail}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, firstAdminEmail: event.target.value })}
+              placeholder="admin@kunde.dk"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <label>
+            Navn
+            <input
+              value={organizationForm.firstAdminName}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, firstAdminName: event.target.value })}
+              placeholder="Kunde administrator"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <label>
+            Juridisk navn
+            <input
+              value={organizationForm.legalName}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, legalName: event.target.value })}
+              placeholder="Kan udfyldes af orgadmin senere"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <div className="form-grid two">
+            <label>
+              Kontakt email
+              <input
+                type="email"
+                value={organizationForm.contactEmail}
+                onChange={(event) => setOrganizationForm({ ...organizationForm, contactEmail: event.target.value })}
+                placeholder="kontakt@kunde.dk"
+                disabled={!isPlatformAdmin}
+              />
+            </label>
+            <label>
+              Kontakt telefon
+              <input
+                value={organizationForm.contactPhone}
+                onChange={(event) => setOrganizationForm({ ...organizationForm, contactPhone: event.target.value })}
+                placeholder="+45 ..."
+                disabled={!isPlatformAdmin}
+              />
+            </label>
+          </div>
+          <label>
+            Kontaktperson
+            <input
+              value={organizationForm.contactName}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, contactName: event.target.value })}
+              placeholder="Kan udfyldes af orgadmin senere"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <label>
+            Adresse
+            <textarea
+              rows={2}
+              value={organizationForm.address}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, address: event.target.value })}
+              placeholder="Kan udfyldes af orgadmin senere"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <label>
+            Faktureringsadresse
+            <textarea
+              rows={2}
+              value={organizationForm.billingAddress}
+              onChange={(event) => setOrganizationForm({ ...organizationForm, billingAddress: event.target.value })}
+              placeholder="Kan udfyldes af orgadmin senere"
+              disabled={!isPlatformAdmin}
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={!isPlatformAdmin}>
+            <Plus size={16} />
+            Opret kunde og invitér orgadmin
+          </button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Kundestamdata</h2>
+            <p>{selectedOrganization?.name || "Vælg kunde"}</p>
+          </div>
+          <Badge tone={customerProfileComplete ? "success" : "warning"}>{customerProfileComplete ? "Komplet" : "Mangler"}</Badge>
+        </div>
+        <form className="stack-form" onSubmit={onSaveOrganizationProfile}>
+          {!canManageOrganizationProfile && <p className="modal-copy">Kun system_admin eller orgadmin kan opdatere kundestamdata.</p>}
+          <label>
+            Kundenavn
+            <input
+              value={organizationProfileForm.name}
+              onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, name: event.target.value })}
+              disabled={!canManageOrganizationProfile}
+              required
+            />
+          </label>
+          <label>
+            Juridisk navn
+            <input
+              value={organizationProfileForm.legalName}
+              onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, legalName: event.target.value })}
+              disabled={!canManageOrganizationProfile}
+            />
+          </label>
+          <div className="form-grid two">
+            <label>
+              Kontaktperson
+              <input
+                value={organizationProfileForm.contactName}
+                onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, contactName: event.target.value })}
+                disabled={!canManageOrganizationProfile}
+                required
+              />
+            </label>
+            <label>
+              Telefon
+              <input
+                value={organizationProfileForm.contactPhone}
+                onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, contactPhone: event.target.value })}
+                disabled={!canManageOrganizationProfile}
+                required
+              />
+            </label>
+          </div>
+          <label>
+            Email
+            <input
+              type="email"
+              value={organizationProfileForm.contactEmail}
+              onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, contactEmail: event.target.value })}
+              disabled={!canManageOrganizationProfile}
+              required
+            />
+          </label>
+          <label>
+            Adresse
+            <textarea
+              rows={3}
+              value={organizationProfileForm.address}
+              onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, address: event.target.value })}
+              disabled={!canManageOrganizationProfile}
+              required
+            />
+          </label>
+          <label>
+            Faktureringsadresse
+            <textarea
+              rows={3}
+              value={organizationProfileForm.billingAddress}
+              onChange={(event) => setOrganizationProfileForm({ ...organizationProfileForm, billingAddress: event.target.value })}
+              disabled={!canManageOrganizationProfile}
+              required
+            />
+          </label>
+          <button className="primary-button" type="submit" disabled={!canManageOrganizationProfile}>
+            <Check size={16} />
+            Gem kundestamdata
+          </button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Opret site</h2>
+            <p>{selectedOrganization?.name || "Vælg kunde"}</p>
+          </div>
+        </div>
+        <form className="stack-form" onSubmit={onAddSite}>
+          {!canCreateSite && <p className="modal-copy">Kun system_admin eller orgadmin kan oprette sites.</p>}
+          {canCreateSite && !customerProfileComplete && <p className="modal-copy">Udfyld kundestamdata før første site oprettes.</p>}
+          <label>
+            Site-navn
+            <input
+              value={siteForm.name}
+              onChange={(event) =>
+                setSiteForm({
+                  ...siteForm,
+                  name: event.target.value,
+                  slug: siteForm.slug || safeSlug(event.target.value),
+                })
+              }
+              placeholder="Horsens"
+              disabled={!canCreateSite}
+            />
+          </label>
+          <label>
+            Slug
+            <input
+              value={siteForm.slug}
+              onChange={(event) => setSiteForm({ ...siteForm, slug: safeSlug(event.target.value) })}
+              placeholder="horsens"
+              disabled={!canCreateSite}
+            />
+          </label>
+          <label>
+            Tidszone
+            <input
+              value={siteForm.timezone}
+              onChange={(event) => setSiteForm({ ...siteForm, timezone: event.target.value })}
+              disabled={!canCreateSite}
+            />
+          </label>
+          <label>
+            Adresse
+            <input
+              value={siteForm.address}
+              onChange={(event) => setSiteForm({ ...siteForm, address: event.target.value })}
+              placeholder="Marsalle 32, 8700 Horsens"
+              disabled={!canCreateSite}
+              required
+            />
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={siteForm.acceptedSiteFee}
+              onChange={(event) => setSiteForm({ ...siteForm, acceptedSiteFee: event.target.checked })}
+              disabled={!canCreateSite}
+            />
+            Jeg accepterer site service fee i måneder hvor sitet har mindst én aktiv enhed.
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={siteForm.acceptedStorageOverage}
+              onChange={(event) => setSiteForm({ ...siteForm, acceptedStorageOverage: event.target.checked })}
+              disabled={!canCreateSite}
+            />
+            Jeg accepterer fees ved dataforbrug over inkluderet storage.
+          </label>
+          <p className="modal-copy">
+            {feeSummaryText([
+              ["Site service", priceFor(prices, "site_service")],
+              ["Ekstra storage", priceFor(prices, "storage_addon")],
+            ])}
+          </p>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={!canCreateSite || !customerProfileComplete || !siteForm.address.trim() || !siteForm.acceptedSiteFee || !siteForm.acceptedStorageOverage}
+          >
+            <Plus size={16} />
+            Opret site
+          </button>
+        </form>
+      </section>
+
+      <section className="panel wide">
+        <div className="panel-heading">
+          <div>
+            <h2>Brugere og rettigheder</h2>
+            <p>Invitér brugere under din egen rettighedsramme. Brugere er gratis.</p>
+          </div>
+        </div>
+        <form className="stack-form compact-form" onSubmit={onInviteUser}>
+          {!canInviteUsers && <p className="modal-copy">Du har ikke rettighed til at invitere brugere.</p>}
+          <div className="form-grid two">
+            <label>
+              Email
+              <input
+                type="email"
+                value={inviteUserForm.email}
+                onChange={(event) => setInviteUserForm({ ...inviteUserForm, email: event.target.value })}
+                disabled={!canInviteUsers}
+              />
+            </label>
+            <label>
+              Navn
+              <input
+                value={inviteUserForm.fullName}
+                onChange={(event) => setInviteUserForm({ ...inviteUserForm, fullName: event.target.value })}
+                disabled={!canInviteUsers}
+              />
+            </label>
+            <label>
+              Rolle
+              <select
+                value={inviteUserForm.role}
+                onChange={(event) => setInviteUserForm({ ...inviteUserForm, role: event.target.value as InviteUserForm["role"] })}
+                disabled={!canInviteUsers}
+              >
+                {inviteRoles.map((role) => (
+                  <option key={role} value={role}>
+                    {roleLabel(role)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Site
+              <select
+                value={inviteUserForm.siteId}
+                onChange={(event) => setInviteUserForm({ ...inviteUserForm, siteId: event.target.value })}
+                disabled={!canInviteUsers || !inviteRequiresSite}
+              >
+                <option value="">Vælg site</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <button className="primary-button" type="submit" disabled={!canInviteUsers}>
+            <Plus size={16} />
+            Invitér bruger
+          </button>
+        </form>
+
+        <div className="table-wrap spaced-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Rolle</th>
+                <th>Scope</th>
+                <th>Kunde</th>
+              </tr>
+            </thead>
+            <tbody>
+              {memberships.map((membership) => (
+                <tr key={membership.id}>
+                  <td>
+                    <Badge tone={membership.role === "site_operator" ? "neutral" : "active"}>{roleLabel(membership.role)}</Badge>
+                  </td>
+                  <td>{relationLabel(membership.sites, "name") || "Hele organisationen"}</td>
+                  <td>{relationLabel(membership.organizations, "name")}</td>
+                </tr>
+              ))}
+              {memberships.length === 0 && (
+                <tr>
+                  <td colSpan={3}>
+                    <EmptyState title="Ingen memberships" text="System_admin kan oprette første kunde og orgadmin her." />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="compact-list admin-summary">
+          <div className="compact-row">
+            <ShieldCheck size={16} />
+            <div>
+              <strong>System_admin</strong>
+              <span>Kan se og styre alle kunder, sites, enheder, videoer, priser og sletninger.</span>
+            </div>
+            <Badge tone={isPlatformAdmin ? "success" : "neutral"}>{isPlatformAdmin ? "Aktiv" : "Nej"}</Badge>
+          </div>
+          <div className="compact-row">
+            <ShieldCheck size={16} />
+            <div>
+              <strong>Orgadmin</strong>
+              <span>Kan oprette sites, site admins, site operators, enheder og skjule videoer i organisationen.</span>
+            </div>
+            <Badge tone="neutral">Kunde</Badge>
+          </div>
+          <div className="compact-row">
+            <ShieldCheck size={16} />
+            <div>
+              <strong>Site admin</strong>
+              <span>Kan oprette lokale enheder, invitere lokale brugere og skjule videoer på sitet.</span>
+            </div>
+            <Badge tone="neutral">Site</Badge>
+          </div>
+          <div className="compact-row">
+            <Eye size={16} />
+            <div>
+              <strong>Site operator</strong>
+              <span>Kan se videoer og status for sitet uden opsætningsrettigheder.</span>
+            </div>
+            <Badge tone="neutral">Læs</Badge>
+          </div>
         </div>
       </section>
     </div>
@@ -1704,11 +2631,12 @@ function BillingView({
   const sitePrice = priceFor(prices, "site_service");
   const devicePrice = priceFor(prices, "device_license");
   const storagePrice = priceFor(prices, "storage_addon");
+  const billableSites = usage.filter((row) => numberValue(row.billable_device_count) > 0).length;
   const billableDevices = usage.reduce((sum, row) => sum + numberValue(row.billable_device_count), 0);
   const hardwarePending = usage.reduce((sum, row) => sum + numberValue(row.hardware_pending_count), 0);
   const extraStorageGb = usage.reduce((sum, row) => sum + numberValue(row.extra_storage_gb), 0);
   const monthlyEstimate =
-    minorAmount(sitePrice) * usage.length +
+    minorAmount(sitePrice) * billableSites +
     minorAmount(devicePrice) * billableDevices +
     minorAmount(storagePrice) * extraStorageGb;
   const hardwareEstimate = minorAmount(hardwarePrice) * hardwarePending;
@@ -1719,8 +2647,9 @@ function BillingView({
       <section className="metrics-grid">
         <Metric icon={<CreditCard size={18} />} label="Est. månedlig base" value={formatMoney(monthlyEstimate, currency)} tone="active" />
         <Metric icon={<Boxes size={18} />} label="Hardware opstart" value={formatMoney(hardwareEstimate, currency)} tone="neutral" />
+        <Metric icon={<Database size={18} />} label="Billable sites" value={String(billableSites)} tone="neutral" />
         <Metric icon={<HardDrive size={18} />} label="Billable enheder" value={String(billableDevices)} tone="neutral" />
-        <Metric icon={<Database size={18} />} label="Ekstra storage" value={`${formatNumber(extraStorageGb)} GB`} tone="neutral" />
+        <Metric icon={<HardDrive size={18} />} label="Ekstra storage" value={`${formatNumber(extraStorageGb)} GB`} tone="neutral" />
       </section>
 
       <section className="panel">
@@ -1732,8 +2661,8 @@ function BillingView({
         </div>
         <div className="price-list">
           <PriceRow price={hardwarePrice} fallback="Hardware opstart" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
-          <PriceRow price={sitePrice} fallback="Service fee pr. site" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
-          <PriceRow price={devicePrice} fallback="Softwarelicens pr. enhed" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
+          <PriceRow price={sitePrice} fallback="Service fee pr. site" note="Faktureres kun når sitet har mindst én billable enhed i måneden." isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
+          <PriceRow price={devicePrice} fallback="Softwarelicens pr. enhed" note="Faktureres når enheden har været provisioneret i mere end 5 dage i kalendermåneden." isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
           <PriceRow price={storagePrice} fallback="Ekstra storage pr. GB" isPlatformAdmin={isPlatformAdmin} onEditPrice={onEditPrice} />
         </div>
       </section>
@@ -1780,7 +2709,9 @@ function BillingView({
                   </td>
                   <td>
                     <strong>{row.billable_device_count} billable</strong>
-                    <span>{row.active_device_count} online/optager · {row.hardware_pending_count} hardware åbent</span>
+                    <span>
+                      {numberValue(row.billable_device_count) > 0 ? "Site billable" : "Site ikke billable"} · {row.active_device_count} online/optager · {row.hardware_pending_count} hardware åbent
+                    </span>
                   </td>
                   <td>
                     <strong>{row.retention_days} dage</strong>
@@ -1812,11 +2743,13 @@ function BillingView({
 function PriceRow({
   price,
   fallback,
+  note,
   isPlatformAdmin,
   onEditPrice,
 }: {
   price: BillingPrice | undefined;
   fallback: string;
+  note?: string;
   isPlatformAdmin: boolean;
   onEditPrice: (price: BillingPrice) => void;
 }) {
@@ -1824,7 +2757,7 @@ function PriceRow({
     <div className="price-row">
       <div>
         <strong>{price?.name || fallback}</strong>
-        <span>{price?.description || "Ikke konfigureret endnu"}</span>
+        <span>{[price?.description || "Ikke konfigureret endnu", note].filter(Boolean).join(" ")}</span>
       </div>
       <div className="price-actions">
         <Badge tone={price && minorAmount(price) > 0 ? "active" : "neutral"}>
@@ -2596,6 +3529,7 @@ function headingFor(tab: Tab) {
   if (tab === "devices") return "Enheder og provisioning";
   if (tab === "videos") return "Videoer og deling";
   if (tab === "billing") return "Billing og storage";
+  if (tab === "admin") return "Kunder, sites og brugere";
   if (tab === "updates") return "Software rollouts";
   return "Driftsoverblik";
 }
@@ -2617,6 +3551,43 @@ function videoDeviceLabel(video: Video): string {
     video.device_serial_number ||
     relationLabel(video.devices, "display_name") ||
     relationLabel(video.devices, "serial_number")
+  );
+}
+
+function strongestOrganizationRole(memberships: Membership[], organizationId: string, isPlatformAdmin: boolean) {
+  if (isPlatformAdmin) return "system_admin";
+  const scoped = memberships.filter((membership) => membership.organization_id === organizationId);
+  if (scoped.some((membership) => membership.site_id === null && ["owner", "admin", "org_admin"].includes(membership.role))) {
+    return "org_admin";
+  }
+  if (scoped.some((membership) => membership.role === "site_admin")) {
+    return "site_admin";
+  }
+  if (scoped.some((membership) => membership.role === "site_operator" || membership.role === "viewer")) {
+    return "site_operator";
+  }
+  return "";
+}
+
+function roleLabel(role: UserRole | InviteUserForm["role"]) {
+  if (role === "system_admin") return "System admin";
+  if (role === "owner" || role === "admin" || role === "org_admin") return "Orgadmin";
+  if (role === "site_admin") return "Site admin";
+  if (role === "site_operator" || role === "viewer") return "Site operator";
+  return role;
+}
+
+function safeSlug(value: string) {
+  return (
+    value
+      .trim()
+      .toLowerCase()
+      .replace(/æ/g, "ae")
+      .replace(/ø/g, "oe")
+      .replace(/å/g, "aa")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63) || ""
   );
 }
 
@@ -2702,6 +3673,26 @@ function priceFor(prices: BillingPrice[], component: BillingPrice["component"]) 
   return prices.find((price) => price.component === component && price.active);
 }
 
+function priceSummary(price: BillingPrice | undefined) {
+  if (!price) {
+    return { configured: false };
+  }
+  return {
+    configured: true,
+    code: price.code,
+    name: price.name,
+    amount: minorAmount(price),
+    currency: price.currency,
+    unit_label: price.unit_label || price.billing_period,
+  };
+}
+
+function feeSummaryText(items: Array<[string, BillingPrice | undefined]>) {
+  return items
+    .map(([label, price]) => `${label}: ${price ? `${formatMoney(minorAmount(price), price.currency)} / ${price.unit_label || price.billing_period}` : "ikke prissat"}`)
+    .join(" · ");
+}
+
 function minorAmount(price: BillingPrice | undefined) {
   return price ? numberValue(price.unit_amount_minor) : 0;
 }
@@ -2770,6 +3761,30 @@ function scannerScheduleDetail(device: Device) {
     .join(", ");
 }
 
+function organizationToProfileForm(organization: Organization): OrganizationProfileForm {
+  return {
+    name: organization.name || "",
+    legalName: organization.legal_name || organization.name || "",
+    contactName: organization.contact_name || "",
+    contactEmail: organization.contact_email || "",
+    contactPhone: organization.contact_phone || "",
+    address: organization.address || "",
+    billingAddress: organization.billing_address || "",
+  };
+}
+
+function hasCompleteOrganizationProfile(organization: Organization | undefined) {
+  if (!organization) return false;
+  return [
+    organization.name,
+    organization.contact_name,
+    organization.contact_email,
+    organization.contact_phone,
+    organization.address,
+    organization.billing_address,
+  ].every((value) => typeof value === "string" && value.trim().length > 0);
+}
+
 function uniqueOrganizations(memberships: Membership[]): Organization[] {
   const byId = new Map<string, Organization>();
   for (const membership of memberships) {
@@ -2791,6 +3806,12 @@ function currentMembershipRowsToMemberships(rows: CurrentMembershipRow[]): Membe
       id: row.organization_id,
       name: row.organization_name,
       slug: row.organization_slug,
+      legal_name: row.organization_legal_name ?? row.organization_name,
+      contact_name: row.organization_contact_name ?? "",
+      contact_email: row.organization_contact_email ?? "",
+      contact_phone: row.organization_contact_phone ?? "",
+      address: row.organization_address ?? "",
+      billing_address: row.organization_billing_address ?? "",
     },
     sites: row.site_id
       ? {
@@ -2799,6 +3820,7 @@ function currentMembershipRowsToMemberships(rows: CurrentMembershipRow[]): Membe
           name: row.site_name ?? "",
           slug: row.site_slug ?? "",
           timezone: row.site_timezone ?? "Europe/Copenhagen",
+          address: row.site_address ?? "",
         }
       : null,
   }));

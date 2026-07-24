@@ -2,6 +2,12 @@ export type Organization = {
   id: string;
   name: string;
   slug: string;
+  legal_name: string;
+  contact_name: string;
+  contact_email: string;
+  contact_phone: string;
+  address: string;
+  billing_address: string;
 };
 
 export type Site = {
@@ -10,13 +16,14 @@ export type Site = {
   name: string;
   slug: string;
   timezone: string;
+  address: string;
 };
 
 export type Membership = {
   id: string;
   organization_id: string;
   site_id: string | null;
-  role: "owner" | "admin" | "site_admin" | "viewer";
+  role: UserRole;
   organizations?: Organization | Organization[] | null;
   sites?: Site | Site[] | null;
 };
@@ -26,12 +33,21 @@ export type CurrentMembershipRow = {
   organization_id: string;
   organization_name: string;
   organization_slug: string;
+  organization_legal_name?: string;
+  organization_contact_name?: string;
+  organization_contact_email?: string;
+  organization_contact_phone?: string;
+  organization_address?: string;
+  organization_billing_address?: string;
   site_id: string | null;
   site_name: string | null;
   site_slug: string | null;
   site_timezone: string | null;
-  role: "owner" | "admin" | "site_admin" | "viewer";
+  site_address?: string | null;
+  role: UserRole;
 };
+
+export type UserRole = "system_admin" | "owner" | "admin" | "org_admin" | "site_admin" | "viewer" | "site_operator";
 
 export type Device = {
   id: string;
