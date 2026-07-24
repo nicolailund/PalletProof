@@ -38,6 +38,7 @@ import type {
   DeviceEvent,
   Membership,
   Organization,
+  OrganizationMember,
   Site,
   SiteBillingUsage,
   SoftwareRollout,
@@ -130,6 +131,17 @@ type PriceForm = {
 type ShareResult = {
   url: string;
   token: string;
+};
+
+type InviteUserResult = {
+  ok: boolean;
+  user_id: string;
+  membership_id: string;
+  invite_sent?: boolean;
+  resend_sent?: boolean;
+  existing_user?: boolean;
+  already_confirmed?: boolean;
+  membership_updated?: boolean;
 };
 
 type VideoFilters = {
@@ -273,6 +285,7 @@ function App() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("overview");
   const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [organizationMembers, setOrganizationMembers] = useState<OrganizationMember[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [videos, setVideos] = useState<Video[]>([]);
@@ -450,6 +463,7 @@ function App() {
       setSelectedOrgId(effectiveOrgId);
 
       if (!effectiveOrgId) {
+        setOrganizationMembers([]);
         setSites([]);
         setDevices([]);
         setVideos([]);
@@ -507,13 +521,14 @@ function App() {
         eventQuery = eventQuery.eq("site_id", effectiveSiteId);
       }
 
-      const [deviceResult, videoResult, eventResult, rolloutResult, priceResult, usageResult] = await Promise.all([
+      const [deviceResult, videoResult, eventResult, rolloutResult, priceResult, usageResult, memberResult] = await Promise.all([
         deviceQuery,
         videoQuery,
         eventQuery,
         client.from("software_rollouts").select("*").order("created_at", { ascending: false }).limit(20),
         priceQuery,
         client.rpc("billing_site_usage", { p_organization_id: effectiveOrgId }),
+        client.rpc("organization_members", { p_organization_id: effectiveOrgId }),
       ]);
 
       if (deviceResult.error) throw deviceResult.error;
@@ -522,6 +537,7 @@ function App() {
       if (rolloutResult.error) throw rolloutResult.error;
       if (priceResult.error) throw priceResult.error;
       if (usageResult.error) throw usageResult.error;
+      if (memberResult.error) throw memberResult.error;
 
       setDevices((deviceResult.data ?? []) as Device[]);
       setVideos((videoResult.data ?? []) as Video[]);
@@ -529,6 +545,7 @@ function App() {
       setRollouts((rolloutResult.data ?? []) as SoftwareRollout[]);
       setBillingPrices((priceResult.data ?? []) as BillingPrice[]);
       setBillingUsage((usageResult.data ?? []) as SiteBillingUsage[]);
+      setOrganizationMembers((memberResult.data ?? []) as OrganizationMember[]);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -550,6 +567,7 @@ function App() {
     await requireSupabase().auth.signOut();
     setSession(null);
     setMemberships([]);
+    setOrganizationMembers([]);
     setSites([]);
     setDevices([]);
     setVideos([]);
@@ -823,7 +841,7 @@ function App() {
     }
 
     try {
-      await invokeInviteUser({
+      const inviteResult = await invokeInviteUser({
         email: inviteUserForm.email,
         full_name: inviteUserForm.fullName,
         organization_id: selectedOrganization.id,
@@ -831,20 +849,44 @@ function App() {
         role,
       });
       setInviteUserForm({ ...emptyInviteUserForm, siteId: inviteUserForm.siteId });
-      setNotice(`Invitation sendt til ${inviteUserForm.email.trim()}.`);
+      setNotice(inviteNotice(inviteUserForm.email.trim(), inviteResult));
       await loadWorkspace();
     } catch (caught) {
       setError(`Brugeren kunne ikke inviteres: ${errorMessage(caught)}`);
     }
   }
 
-  async function invokeInviteUser(payload: Record<string, unknown>) {
-    const { error: inviteError } = await requireSupabase().functions.invoke("invite-user", {
+  async function handleResendInvitation(member: OrganizationMember) {
+    const role = inviteRoleForMember(member.role);
+    if (!role) {
+      setError("Denne rolle kan ikke gensendes som invitation. Opret en ny org/site rolle for brugeren.");
+      return;
+    }
+
+    try {
+      const inviteResult = await invokeInviteUser({
+        email: member.email,
+        full_name: member.full_name,
+        organization_id: member.organization_id,
+        site_id: member.site_id,
+        role,
+        resend: true,
+      });
+      setNotice(inviteNotice(member.email, inviteResult));
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Invitationen kunne ikke gensendes: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function invokeInviteUser(payload: Record<string, unknown>): Promise<InviteUserResult> {
+    const { data, error: inviteError, response } = await requireSupabase().functions.invoke("invite-user", {
       body: payload,
     });
     if (inviteError) {
-      throw inviteError;
+      throw new Error(await functionInvocationErrorMessage(inviteError, response));
     }
+    return (data ?? {}) as InviteUserResult;
   }
 
   async function recordBillingAcceptance(
@@ -1496,6 +1538,7 @@ function App() {
                 selectedOrganization={selectedOrganization}
                 sites={sites}
                 memberships={memberships}
+                organizationMembers={organizationMembers}
                 organizationForm={organizationForm}
                 setOrganizationForm={setOrganizationForm}
                 organizationProfileForm={organizationProfileForm}
@@ -1515,6 +1558,7 @@ function App() {
                 onSaveOrganizationProfile={handleSaveOrganizationProfile}
                 onAddSite={handleAddSite}
                 onInviteUser={handleInviteUser}
+                onResendInvitation={handleResendInvitation}
               />
             )}
 
@@ -1892,6 +1936,7 @@ function AdminView({
   selectedOrganization,
   sites,
   memberships,
+  organizationMembers,
   organizationForm,
   setOrganizationForm,
   organizationProfileForm,
@@ -1911,11 +1956,13 @@ function AdminView({
   onSaveOrganizationProfile,
   onAddSite,
   onInviteUser,
+  onResendInvitation,
 }: {
   organizations: Organization[];
   selectedOrganization: Organization | undefined;
   sites: Site[];
   memberships: Membership[];
+  organizationMembers: OrganizationMember[];
   organizationForm: OrganizationForm;
   setOrganizationForm: (form: OrganizationForm) => void;
   organizationProfileForm: OrganizationProfileForm;
@@ -1935,6 +1982,7 @@ function AdminView({
   onSaveOrganizationProfile: (event: FormEvent) => void;
   onAddSite: (event: FormEvent) => void;
   onInviteUser: (event: FormEvent) => void;
+  onResendInvitation: (member: OrganizationMember) => void;
 }) {
   const inviteRoles =
     currentUserOrgRole === "site_admin"
@@ -2300,25 +2348,44 @@ function AdminView({
           <table>
             <thead>
               <tr>
+                <th>Bruger</th>
                 <th>Rolle</th>
                 <th>Scope</th>
-                <th>Kunde</th>
+                <th>Status</th>
+                <th>Seneste aktivitet</th>
+                <th />
               </tr>
             </thead>
             <tbody>
-              {memberships.map((membership) => (
-                <tr key={membership.id}>
+              {organizationMembers.map((member) => (
+                <tr key={member.membership_id}>
                   <td>
-                    <Badge tone={membership.role === "site_operator" ? "neutral" : "active"}>{roleLabel(membership.role)}</Badge>
+                    <strong>{member.email}</strong>
+                    <span>{member.full_name || "Intet navn"}</span>
                   </td>
-                  <td>{relationLabel(membership.sites, "name") || "Hele organisationen"}</td>
-                  <td>{relationLabel(membership.organizations, "name")}</td>
+                  <td>
+                    <Badge tone={member.role === "site_operator" ? "neutral" : "active"}>{roleLabel(member.role)}</Badge>
+                  </td>
+                  <td>{member.site_name || "Hele organisationen"}</td>
+                  <td>
+                    <Badge tone={memberStatusTone(member)}>{memberStatusLabel(member)}</Badge>
+                    <span>{member.invited_at ? `Inviteret ${relativeTime(member.invited_at)}` : ""}</span>
+                  </td>
+                  <td>{memberActivityLabel(member)}</td>
+                  <td className="row-actions">
+                    {canResendMemberInvitation(member) && (
+                      <button className="icon-text-button" type="button" onClick={() => onResendInvitation(member)} disabled={!canInviteUsers}>
+                        <RefreshCcw size={16} />
+                        Gensend
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
-              {memberships.length === 0 && (
+              {organizationMembers.length === 0 && (
                 <tr>
-                  <td colSpan={3}>
-                    <EmptyState title="Ingen memberships" text="System_admin kan oprette første kunde og orgadmin her." />
+                  <td colSpan={6}>
+                    <EmptyState title="Ingen brugere" text="Inviterede og aktive brugere vises her." />
                   </td>
                 </tr>
               )}
@@ -3577,6 +3644,49 @@ function roleLabel(role: UserRole | InviteUserForm["role"]) {
   return role;
 }
 
+function inviteRoleForMember(role: UserRole): InviteUserForm["role"] | null {
+  if (role === "org_admin" || role === "site_admin" || role === "site_operator") {
+    return role;
+  }
+  return null;
+}
+
+function inviteNotice(email: string, result: InviteUserResult) {
+  if (result.already_confirmed) {
+    return `${email} findes allerede og er tilføjet/opdateret.`;
+  }
+  if (result.resend_sent || result.existing_user) {
+    return `Invitation gensendt til ${email}.`;
+  }
+  return `Invitation sendt til ${email}.`;
+}
+
+function memberStatusLabel(member: OrganizationMember) {
+  if (member.last_sign_in_at) return "Aktiv";
+  if (member.confirmed_at) return "Bekræftet";
+  if (member.invited_at || member.confirmation_sent_at) return "Inviteret";
+  return "Oprettet";
+}
+
+function memberStatusTone(member: OrganizationMember) {
+  if (member.last_sign_in_at) return "success";
+  if (member.confirmed_at) return "active";
+  if (member.invited_at || member.confirmation_sent_at) return "warning";
+  return "neutral";
+}
+
+function memberActivityLabel(member: OrganizationMember) {
+  if (member.last_sign_in_at) return relativeTime(member.last_sign_in_at);
+  if (member.confirmed_at) return `Bekræftet ${relativeTime(member.confirmed_at)}`;
+  if (member.confirmation_sent_at) return `Sendt ${relativeTime(member.confirmation_sent_at)}`;
+  if (member.invited_at) return `Inviteret ${relativeTime(member.invited_at)}`;
+  return "-";
+}
+
+function canResendMemberInvitation(member: OrganizationMember) {
+  return Boolean(inviteRoleForMember(member.role) && !member.confirmed_at && !member.last_sign_in_at);
+}
+
 function safeSlug(value: string) {
   return (
     value
@@ -3879,12 +3989,35 @@ async function copyText(value: string) {
   await navigator.clipboard.writeText(value);
 }
 
+async function functionInvocationErrorMessage(caught: unknown, response: Response | undefined) {
+  const context = response ?? ((caught as { context?: unknown } | null)?.context instanceof Response ? (caught as { context: Response }).context : undefined);
+  if (context) {
+    const parsed = await responseMessage(context);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return errorMessage(caught);
+}
+
+async function responseMessage(response: Response) {
+  try {
+    const clone = response.clone();
+    if ((clone.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
+      return errorMessage(await clone.json());
+    }
+    return (await clone.text()).trim();
+  } catch {
+    return "";
+  }
+}
+
 function errorMessage(caught: unknown) {
   if (caught instanceof Error) return caught.message;
   if (typeof caught === "string") return caught;
   if (caught && typeof caught === "object") {
-    const values = caught as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
-    const parts = [values.message, values.details, values.hint, values.code]
+    const values = caught as { error?: unknown; message?: unknown; details?: unknown; hint?: unknown; code?: unknown };
+    const parts = [values.error, values.message, values.details, values.hint, values.code]
       .filter((value): value is string => typeof value === "string" && value.length > 0);
     if (parts.length > 0) {
       return parts.join(" · ");

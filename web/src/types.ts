@@ -28,6 +28,22 @@ export type Membership = {
   sites?: Site | Site[] | null;
 };
 
+export type OrganizationMember = {
+  membership_id: string;
+  organization_id: string;
+  site_id: string | null;
+  site_name: string | null;
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: UserRole;
+  invited_at: string | null;
+  confirmation_sent_at: string | null;
+  confirmed_at: string | null;
+  last_sign_in_at: string | null;
+  created_at: string;
+};
+
 export type CurrentMembershipRow = {
   membership_id: string;
   organization_id: string;

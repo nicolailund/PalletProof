@@ -8,6 +8,17 @@ type InviteRequest = {
   organization_id?: string;
   site_id?: string | null;
   role?: InviteRole;
+  resend?: boolean;
+};
+
+type AuthUser = {
+  id: string;
+  email?: string | null;
+  confirmed_at?: string | null;
+  email_confirmed_at?: string | null;
+  invited_at?: string | null;
+  confirmation_sent_at?: string | null;
+  last_sign_in_at?: string | null;
 };
 
 const corsHeaders = {
@@ -62,6 +73,7 @@ Deno.serve(async (request) => {
   const organizationId = String(body.organization_id ?? "").trim();
   const siteId = body.site_id ? String(body.site_id).trim() : null;
   const role = body.role;
+  const resendRequested = body.resend === true;
 
   if (!email || !organizationId || !role) {
     return jsonResponse({ error: "email, organization_id and role are required" }, 400);
@@ -85,14 +97,35 @@ Deno.serve(async (request) => {
     data: { full_name: fullName },
     redirectTo: portalUrl || undefined,
   });
-  if (inviteError || !invited.user) {
-    return jsonResponse({ error: inviteError?.message ?? "Could not invite user" }, 400);
+
+  let targetUser = invited.user as AuthUser | null;
+  let inviteSent = Boolean(targetUser && !inviteError);
+  let resendSent = resendRequested && inviteSent;
+  let existingUser = false;
+  let alreadyConfirmed = Boolean(targetUser && isConfirmedUser(targetUser));
+
+  if (inviteError || !targetUser) {
+    targetUser = await findAuthUserByEmail(admin, email);
+    existingUser = Boolean(targetUser);
+    alreadyConfirmed = Boolean(targetUser && isConfirmedUser(targetUser));
+
+    if (!targetUser) {
+      return jsonResponse({ error: inviteError?.message ?? "Could not invite user" }, 400);
+    }
+
+    if (!alreadyConfirmed) {
+      const resendError = await resendSignupEmail(admin, email, portalUrl);
+      if (resendError) {
+        return jsonResponse({ error: `User exists but invitation could not be resent: ${resendError}` }, 400);
+      }
+      inviteSent = true;
+      resendSent = true;
+    }
   }
 
-  const invitedUserId = invited.user.id;
-  const { error: profileError } = await admin
-    .from("profiles")
-    .upsert({ id: invitedUserId, full_name: fullName }, { onConflict: "id" });
+  const invitedUserId = targetUser.id;
+  const profilePayload = fullName ? { id: invitedUserId, full_name: fullName } : { id: invitedUserId };
+  const { error: profileError } = await admin.from("profiles").upsert(profilePayload, { onConflict: "id" });
   if (profileError) {
     return jsonResponse({ error: profileError.message }, 400);
   }
@@ -117,11 +150,13 @@ Deno.serve(async (request) => {
   };
 
   let membershipId = existingMemberships?.[0]?.id as string | undefined;
+  let membershipUpdated = false;
   if (membershipId) {
     const { error: updateError } = await admin.from("memberships").update({ role }).eq("id", membershipId);
     if (updateError) {
       return jsonResponse({ error: updateError.message }, 400);
     }
+    membershipUpdated = true;
   } else {
     const { data: insertedMembership, error: insertError } = await admin
       .from("memberships")
@@ -137,7 +172,7 @@ Deno.serve(async (request) => {
   await admin.from("audit_log").insert({
     organization_id: organizationId,
     actor_user_id: caller.id,
-    action: "user_invited",
+    action: resendSent ? "user_invite_resent" : existingUser ? "user_membership_upserted" : "user_invited",
     resource_type: "membership",
     resource_id: membershipId,
     metadata: {
@@ -145,6 +180,11 @@ Deno.serve(async (request) => {
       role,
       site_id: siteId,
       invited_user_id: invitedUserId,
+      invite_sent: inviteSent,
+      resend_sent: resendSent,
+      existing_user: existingUser,
+      already_confirmed: alreadyConfirmed,
+      membership_updated: membershipUpdated,
     },
   });
 
@@ -152,6 +192,11 @@ Deno.serve(async (request) => {
     ok: true,
     user_id: invitedUserId,
     membership_id: membershipId,
+    invite_sent: inviteSent,
+    resend_sent: resendSent,
+    existing_user: existingUser,
+    already_confirmed: alreadyConfirmed,
+    membership_updated: membershipUpdated,
   });
 });
 
@@ -211,6 +256,41 @@ function canInvite(
   if (permission.orgAdmin) return true;
   if (permission.siteAdmin) return Boolean(siteId) && (role === "site_admin" || role === "site_operator");
   return false;
+}
+
+function isConfirmedUser(user: AuthUser) {
+  return Boolean(user.confirmed_at || user.email_confirmed_at || user.last_sign_in_at);
+}
+
+async function findAuthUserByEmail(admin: ReturnType<typeof createClient>, email: string) {
+  const wanted = normalizeEmail(email);
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) {
+      throw error;
+    }
+
+    const users = (data.users ?? []) as AuthUser[];
+    const user = users.find((candidate) => normalizeEmail(candidate.email) === wanted);
+    if (user) {
+      return user;
+    }
+    if (users.length < 1000) {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function resendSignupEmail(admin: ReturnType<typeof createClient>, email: string, portalUrl: string) {
+  const { error } = await admin.auth.resend({
+    type: "signup",
+    email,
+    options: {
+      emailRedirectTo: portalUrl || undefined,
+    },
+  });
+  return error?.message ?? "";
 }
 
 function jsonResponse(payload: unknown, status = 200) {
