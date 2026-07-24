@@ -144,6 +144,15 @@ type InviteUserResult = {
   membership_updated?: boolean;
 };
 
+type ManagedUserRole = "org_admin" | "site_admin" | "site_operator";
+
+type MemberDeleteMode = "access" | "account";
+
+type MemberDeleteState = {
+  member: OrganizationMember;
+  mode: MemberDeleteMode;
+};
+
 type VideoFilters = {
   scannedId: string;
   date: string;
@@ -318,6 +327,8 @@ function App() {
   const [rolloutForm, setRolloutForm] = useState<RolloutForm>(emptyRolloutForm);
   const [shareResult, setShareResult] = useState<ShareResult | null>(null);
   const [videoPlayer, setVideoPlayer] = useState<VideoPlayerState | null>(null);
+  const [editingMemberRole, setEditingMemberRole] = useState<OrganizationMember | null>(null);
+  const [deletingMember, setDeletingMember] = useState<MemberDeleteState | null>(null);
   const [hideVideo, setHideVideo] = useState<Video | null>(null);
   const [restoreVideo, setRestoreVideo] = useState<Video | null>(null);
   const [deleteVideo, setDeleteVideo] = useState<Video | null>(null);
@@ -887,6 +898,65 @@ function App() {
       throw new Error(await functionInvocationErrorMessage(inviteError, response));
     }
     return (data ?? {}) as InviteUserResult;
+  }
+
+  async function handleUpdateMemberRole(member: OrganizationMember, role: ManagedUserRole) {
+    try {
+      await invokeManageUser({
+        action: "update_role",
+        membership_id: member.membership_id,
+        role,
+      });
+      setEditingMemberRole(null);
+      setNotice(`${member.email} er opdateret til ${roleLabel(role)}.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Rollen kunne ikke ændres: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleRemoveMemberAccess(member: OrganizationMember) {
+    try {
+      await invokeManageUser({
+        action: "remove_membership",
+        membership_id: member.membership_id,
+        reason: "Removed from admin portal",
+      });
+      setDeletingMember(null);
+      setNotice(`${member.email} er fjernet fra ${member.site_name || "organisationen"}.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Brugerens adgang kunne ikke fjernes: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function handleDeleteMemberAccount(member: OrganizationMember) {
+    if (!isPlatformAdmin) {
+      setError("Kun system_admin kan slette en brugerkonto.");
+      return;
+    }
+
+    try {
+      await invokeManageUser({
+        action: "delete_user",
+        user_id: member.user_id,
+        reason: "Deleted from admin portal",
+      });
+      setDeletingMember(null);
+      setNotice(`${member.email} er slettet som brugerkonto.`);
+      await loadWorkspace();
+    } catch (caught) {
+      setError(`Brugerkontoen kunne ikke slettes: ${errorMessage(caught)}`);
+    }
+  }
+
+  async function invokeManageUser(payload: Record<string, unknown>) {
+    const { error: manageError, response } = await requireSupabase().functions.invoke("manage-user", {
+      body: payload,
+    });
+    if (manageError) {
+      throw new Error(await functionInvocationErrorMessage(manageError, response));
+    }
   }
 
   async function recordBillingAcceptance(
@@ -1549,6 +1619,7 @@ function App() {
                 setInviteUserForm={setInviteUserForm}
                 prices={billingPrices}
                 isPlatformAdmin={isPlatformAdmin}
+                currentUserId={session.user.id}
                 customerProfileComplete={customerProfileComplete}
                 canManageOrganizationProfile={canManageOrganizationProfile}
                 canCreateSite={canCreateSite}
@@ -1559,6 +1630,9 @@ function App() {
                 onAddSite={handleAddSite}
                 onInviteUser={handleInviteUser}
                 onResendInvitation={handleResendInvitation}
+                onEditMemberRole={(member) => setEditingMemberRole(member)}
+                onRemoveMemberAccess={(member) => setDeletingMember({ member, mode: "access" })}
+                onDeleteMemberAccount={(member) => setDeletingMember({ member, mode: "account" })}
               />
             )}
 
@@ -1604,6 +1678,27 @@ function App() {
       )}
 
       {videoPlayer && <VideoPlayerModal state={videoPlayer} onClose={() => setVideoPlayer(null)} />}
+
+      {editingMemberRole && (
+        <EditMemberRoleModal
+          member={editingMemberRole}
+          roleOptions={memberRoleOptions(editingMemberRole, currentUserOrgRole, isPlatformAdmin)}
+          onCancel={() => setEditingMemberRole(null)}
+          onConfirm={(role) => void handleUpdateMemberRole(editingMemberRole, role)}
+        />
+      )}
+
+      {deletingMember && (
+        <DeleteMemberModal
+          state={deletingMember}
+          onCancel={() => setDeletingMember(null)}
+          onConfirm={() =>
+            deletingMember.mode === "account"
+              ? void handleDeleteMemberAccount(deletingMember.member)
+              : void handleRemoveMemberAccess(deletingMember.member)
+          }
+        />
+      )}
 
       {hideVideo && (
         <VideoReasonModal
@@ -1947,6 +2042,7 @@ function AdminView({
   setInviteUserForm,
   prices,
   isPlatformAdmin,
+  currentUserId,
   customerProfileComplete,
   canManageOrganizationProfile,
   canCreateSite,
@@ -1957,6 +2053,9 @@ function AdminView({
   onAddSite,
   onInviteUser,
   onResendInvitation,
+  onEditMemberRole,
+  onRemoveMemberAccess,
+  onDeleteMemberAccount,
 }: {
   organizations: Organization[];
   selectedOrganization: Organization | undefined;
@@ -1973,6 +2072,7 @@ function AdminView({
   setInviteUserForm: (form: InviteUserForm) => void;
   prices: BillingPrice[];
   isPlatformAdmin: boolean;
+  currentUserId: string;
   customerProfileComplete: boolean;
   canManageOrganizationProfile: boolean;
   canCreateSite: boolean;
@@ -1983,6 +2083,9 @@ function AdminView({
   onAddSite: (event: FormEvent) => void;
   onInviteUser: (event: FormEvent) => void;
   onResendInvitation: (member: OrganizationMember) => void;
+  onEditMemberRole: (member: OrganizationMember) => void;
+  onRemoveMemberAccess: (member: OrganizationMember) => void;
+  onDeleteMemberAccount: (member: OrganizationMember) => void;
 }) {
   const inviteRoles =
     currentUserOrgRole === "site_admin"
@@ -2373,10 +2476,28 @@ function AdminView({
                   </td>
                   <td>{memberActivityLabel(member)}</td>
                   <td className="row-actions">
+                    {canManageOrganizationMember(member, currentUserId, currentUserOrgRole, isPlatformAdmin) && (
+                      <button className="icon-text-button" type="button" onClick={() => onEditMemberRole(member)}>
+                        <SlidersHorizontal size={16} />
+                        Rolle
+                      </button>
+                    )}
                     {canResendMemberInvitation(member) && (
                       <button className="icon-text-button" type="button" onClick={() => onResendInvitation(member)} disabled={!canInviteUsers}>
                         <RefreshCcw size={16} />
                         Gensend
+                      </button>
+                    )}
+                    {canManageOrganizationMember(member, currentUserId, currentUserOrgRole, isPlatformAdmin) && (
+                      <button className="icon-text-button" type="button" onClick={() => onRemoveMemberAccess(member)}>
+                        <Trash2 size={16} />
+                        Fjern
+                      </button>
+                    )}
+                    {isPlatformAdmin && member.user_id !== currentUserId && (
+                      <button className="icon-text-button danger" type="button" onClick={() => onDeleteMemberAccount(member)}>
+                        <Trash2 size={16} />
+                        Slet konto
                       </button>
                     )}
                   </td>
@@ -3314,6 +3435,126 @@ function PriceModal({
   );
 }
 
+function EditMemberRoleModal({
+  member,
+  roleOptions,
+  onCancel,
+  onConfirm,
+}: {
+  member: OrganizationMember;
+  roleOptions: ManagedUserRole[];
+  onCancel: () => void;
+  onConfirm: (role: ManagedUserRole) => void;
+}) {
+  const initialRole = isManagedUserRole(member.role) && roleOptions.includes(member.role) ? member.role : roleOptions[0] ?? "site_operator";
+  const [role, setRole] = useState<ManagedUserRole>(initialRole);
+  const canSubmit = roleOptions.includes(role) && role !== member.role;
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (canSubmit) {
+      onConfirm(role);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Ændr brugerrolle">
+        <div className="panel-heading">
+          <div>
+            <h2>Ændr rolle</h2>
+            <p>{member.email}</p>
+          </div>
+          <button className="icon-button" onClick={onCancel} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <form className="stack-form" onSubmit={handleSubmit}>
+          <p className="modal-copy">
+            Rollen ændres kun for {member.site_name || "hele organisationen"}. Brugeren bevarer eventuelle andre adgange.
+          </p>
+          <label>
+            Rolle
+            <select value={role} onChange={(event) => setRole(event.target.value as ManagedUserRole)} autoFocus>
+              {roleOptions.map((option) => (
+                <option key={option} value={option}>
+                  {roleLabel(option)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>
+              Annuller
+            </button>
+            <button className="primary-button" type="submit" disabled={!canSubmit}>
+              <Check size={16} />
+              Gem rolle
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function DeleteMemberModal({
+  state,
+  onCancel,
+  onConfirm,
+}: {
+  state: MemberDeleteState;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [confirmation, setConfirmation] = useState("");
+  const canDelete = confirmation === "SLET";
+  const isAccountDelete = state.mode === "account";
+  const title = isAccountDelete ? "Slet brugerkonto" : "Fjern adgang";
+  const description = isAccountDelete
+    ? "Kun system_admin kan gøre dette. Brugerens memberships fjernes, profilen slettes, og Auth-kontoen soft-deletes, så brugeren ikke længere kan logge ind."
+    : `Brugeren fjernes kun fra ${state.member.site_name || "organisationen"}. Eventuelle andre adgange og selve brugerkontoen bevares.`;
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (canDelete) {
+      onConfirm();
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="panel-heading">
+          <div>
+            <h2>{title}</h2>
+            <p>{state.member.email}</p>
+          </div>
+          <button className="icon-button" onClick={onCancel} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <form className="stack-form" onSubmit={handleSubmit}>
+          <p className="danger-copy">{description}</p>
+          <label>
+            Skriv SLET for at fortsætte
+            <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoFocus />
+          </label>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onCancel}>
+              Annuller
+            </button>
+            <button className="primary-button danger" type="submit" disabled={!canDelete}>
+              <Trash2 size={16} />
+              {title}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function VideoReasonModal({
   video,
   title,
@@ -3645,10 +3886,39 @@ function roleLabel(role: UserRole | InviteUserForm["role"]) {
 }
 
 function inviteRoleForMember(role: UserRole): InviteUserForm["role"] | null {
-  if (role === "org_admin" || role === "site_admin" || role === "site_operator") {
+  if (isManagedUserRole(role)) {
     return role;
   }
   return null;
+}
+
+function isManagedUserRole(role: unknown): role is ManagedUserRole {
+  return role === "org_admin" || role === "site_admin" || role === "site_operator";
+}
+
+function memberRoleOptions(member: OrganizationMember, currentUserOrgRole: string, isPlatformAdmin: boolean): ManagedUserRole[] {
+  if (!isManagedUserRole(member.role)) {
+    return [];
+  }
+  if (member.site_id) {
+    if (isPlatformAdmin || currentUserOrgRole === "org_admin" || currentUserOrgRole === "site_admin") {
+      return ["site_admin", "site_operator"];
+    }
+    return [];
+  }
+  if (isPlatformAdmin || currentUserOrgRole === "org_admin") {
+    return ["org_admin"];
+  }
+  return [];
+}
+
+function canManageOrganizationMember(
+  member: OrganizationMember,
+  currentUserId: string,
+  currentUserOrgRole: string,
+  isPlatformAdmin: boolean,
+) {
+  return member.user_id !== currentUserId && memberRoleOptions(member, currentUserOrgRole, isPlatformAdmin).length > 0;
 }
 
 function inviteNotice(email: string, result: InviteUserResult) {

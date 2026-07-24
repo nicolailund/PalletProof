@@ -225,6 +225,11 @@ button:disabled {
   padding: 0 10px;
 }
 
+.icon-text-button.danger {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
 .form-error {
   margin: 0;
   color: var(--red);
