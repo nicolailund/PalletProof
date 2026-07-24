@@ -5,6 +5,7 @@ import {
   Activity,
   Boxes,
   Check,
+  Clock,
   Copy,
   CreditCard,
   Database,
@@ -66,6 +67,13 @@ type RolloutForm = {
   description: string;
 };
 
+type ScannerScheduleForm = {
+  enabled: boolean;
+  activeStart: string;
+  activeEnd: string;
+  activeDays: number[];
+};
+
 type SiteEntitlementForm = {
   includedStorageGb: string;
   extraStorageGb: string;
@@ -112,6 +120,13 @@ const emptyRolloutForm: RolloutForm = {
   description: "",
 };
 
+const emptyScannerScheduleForm: ScannerScheduleForm = {
+  enabled: false,
+  activeStart: "06:00",
+  activeEnd: "18:00",
+  activeDays: [1, 2, 3, 4, 5],
+};
+
 const emptySiteEntitlementForm: SiteEntitlementForm = {
   includedStorageGb: "100",
   extraStorageGb: "0",
@@ -142,6 +157,16 @@ const statusClass: Record<Device["status"], string> = {
   disabled: "neutral",
 };
 
+const weekdays = [
+  { value: 1, label: "Man" },
+  { value: 2, label: "Tir" },
+  { value: 3, label: "Ons" },
+  { value: 4, label: "Tor" },
+  { value: 5, label: "Fre" },
+  { value: 6, label: "Lør" },
+  { value: 7, label: "Søn" },
+];
+
 function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -168,6 +193,8 @@ function App() {
   const [provisionForm, setProvisionForm] = useState<ProvisionForm>(emptyProvisionForm);
   const [deleteDevice, setDeleteDevice] = useState<Device | null>(null);
   const [resetDevice, setResetDevice] = useState<Device | null>(null);
+  const [scheduleDevice, setScheduleDevice] = useState<Device | null>(null);
+  const [scannerScheduleForm, setScannerScheduleForm] = useState<ScannerScheduleForm>(emptyScannerScheduleForm);
   const [editingEntitlement, setEditingEntitlement] = useState<SiteBillingUsage | null>(null);
   const [siteEntitlementForm, setSiteEntitlementForm] = useState<SiteEntitlementForm>(emptySiteEntitlementForm);
   const [editingPrice, setEditingPrice] = useState<BillingPrice | null>(null);
@@ -605,6 +632,47 @@ function App() {
     }
   }
 
+  function openScannerSchedule(device: Device) {
+    setScheduleDevice(device);
+    setScannerScheduleForm({
+      enabled: Boolean(device.scanner_schedule_enabled),
+      activeStart: timeInputValue(device.scanner_active_start || emptyScannerScheduleForm.activeStart),
+      activeEnd: timeInputValue(device.scanner_active_end || emptyScannerScheduleForm.activeEnd),
+      activeDays: safeActiveDays(device.scanner_active_days),
+    });
+    setError("");
+  }
+
+  async function handleSaveScannerSchedule(event: FormEvent) {
+    event.preventDefault();
+    if (!scheduleDevice) return;
+
+    const activeDays = safeActiveDays(scannerScheduleForm.activeDays);
+    if (activeDays.length === 0) {
+      setError("Vælg mindst én aktiv dag.");
+      return;
+    }
+
+    const { error: scheduleError } = await requireSupabase()
+      .from("devices")
+      .update({
+        scanner_schedule_enabled: scannerScheduleForm.enabled,
+        scanner_active_start: scannerScheduleForm.activeStart,
+        scanner_active_end: scannerScheduleForm.activeEnd,
+        scanner_active_days: activeDays,
+      })
+      .eq("id", scheduleDevice.id);
+
+    if (scheduleError) {
+      setError(scheduleError.message);
+      return;
+    }
+
+    setNotice(`Scanner sleep time opdateret for ${scheduleDevice.display_name || scheduleDevice.serial_number}.`);
+    setScheduleDevice(null);
+    await loadWorkspace();
+  }
+
   function openEditEntitlement(usage: SiteBillingUsage) {
     setEditingEntitlement(usage);
     setSiteEntitlementForm({
@@ -865,6 +933,7 @@ function App() {
                 onAddDevice={handleAddDevice}
                 onProvision={openProvisioning}
                 onResetQr={(device) => void openResetQr(device)}
+                onSchedule={openScannerSchedule}
                 onDeleteDevice={(device) => {
                   setDeleteDevice(device);
                   setError("");
@@ -937,6 +1006,16 @@ function App() {
       )}
 
       {videoPlayer && <VideoPlayerModal state={videoPlayer} onClose={() => setVideoPlayer(null)} />}
+
+      {scheduleDevice && (
+        <ScannerScheduleModal
+          device={scheduleDevice}
+          form={scannerScheduleForm}
+          setForm={setScannerScheduleForm}
+          onSubmit={handleSaveScannerSchedule}
+          onClose={() => setScheduleDevice(null)}
+        />
+      )}
 
       {editingEntitlement && (
         <SiteEntitlementModal
@@ -1057,6 +1136,7 @@ function DevicesView({
   onAddDevice,
   onProvision,
   onResetQr,
+  onSchedule,
   onDeleteDevice,
 }: {
   devices: Device[];
@@ -1066,6 +1146,7 @@ function DevicesView({
   onAddDevice: (event: FormEvent) => void;
   onProvision: (device: Device) => void;
   onResetQr: (device: Device) => void;
+  onSchedule: (device: Device) => void;
   onDeleteDevice: (device: Device) => void;
 }) {
   return (
@@ -1125,6 +1206,7 @@ function DevicesView({
                 <th>Enhed</th>
                 <th>Status</th>
                 <th>Software</th>
+                <th>Scanner</th>
                 <th>Temperatur</th>
                 <th>Heartbeat</th>
                 <th />
@@ -1141,9 +1223,17 @@ function DevicesView({
                     <Badge tone={statusClass[device.status]}>{statusLabel[device.status]}</Badge>
                   </td>
                   <td>{device.software_version || "-"}</td>
+                  <td>
+                    <strong>{scannerScheduleLabel(device)}</strong>
+                    <span>{scannerScheduleDetail(device)}</span>
+                  </td>
                   <td>{formatTemperature(device.metadata?.temperature_c)}</td>
                   <td>{device.last_heartbeat_at ? relativeTime(device.last_heartbeat_at) : "Aldrig"}</td>
                   <td className="row-actions">
+                    <button className="icon-text-button" onClick={() => onSchedule(device)}>
+                      <Clock size={16} />
+                      Sleep
+                    </button>
                     <button className="icon-text-button" onClick={() => onProvision(device)}>
                       <QrCode size={16} />
                       QR
@@ -1160,7 +1250,7 @@ function DevicesView({
               ))}
               {devices.length === 0 && (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <EmptyState title="Ingen enheder" text="Opret første enhed i formularen til venstre." />
                   </td>
                 </tr>
@@ -1720,6 +1810,95 @@ function ResetQrModal({
   );
 }
 
+function ScannerScheduleModal({
+  device,
+  form,
+  setForm,
+  onSubmit,
+  onClose,
+}: {
+  device: Device;
+  form: ScannerScheduleForm;
+  setForm: (form: ScannerScheduleForm) => void;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal" role="dialog" aria-modal="true" aria-label="Scanner sleep time">
+        <div className="panel-heading">
+          <div>
+            <h2>Scanner sleep time</h2>
+            <p>{device.display_name || device.serial_number}</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Luk">
+            ×
+          </button>
+        </div>
+        <form className="stack-form" onSubmit={onSubmit}>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={form.enabled}
+              onChange={(event) => setForm({ ...form, enabled: event.target.checked })}
+            />
+            Brug aktivt scanner-vindue
+          </label>
+          <div className="form-grid two">
+            <label>
+              Aktiv fra
+              <input
+                type="time"
+                value={form.activeStart}
+                onChange={(event) => setForm({ ...form, activeStart: event.target.value })}
+                disabled={!form.enabled}
+              />
+            </label>
+            <label>
+              Aktiv til
+              <input
+                type="time"
+                value={form.activeEnd}
+                onChange={(event) => setForm({ ...form, activeEnd: event.target.value })}
+                disabled={!form.enabled}
+              />
+            </label>
+          </div>
+          <fieldset className="weekday-field" disabled={!form.enabled}>
+            <legend>Aktive dage</legend>
+            <div className="weekday-grid">
+              {weekdays.map((day) => (
+                <label key={day.value} className="weekday-toggle">
+                  <input
+                    type="checkbox"
+                    checked={form.activeDays.includes(day.value)}
+                    onChange={(event) => {
+                      const nextDays = event.target.checked
+                        ? safeActiveDays([...form.activeDays, day.value])
+                        : form.activeDays.filter((value) => value !== day.value);
+                      setForm({ ...form, activeDays: nextDays });
+                    }}
+                  />
+                  <span>{day.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Annuller
+            </button>
+            <button className="primary-button" type="submit">
+              <Check size={16} />
+              Gem sleep time
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function SiteEntitlementModal({
   usage,
   form,
@@ -2113,6 +2292,39 @@ function storageBarClass(row: SiteBillingUsage) {
   if (pct >= numberValue(row.critical_threshold_pct)) return "critical";
   if (pct >= numberValue(row.warning_threshold_pct)) return "warning";
   return "ok";
+}
+
+function timeInputValue(value: string) {
+  return /^\d{2}:\d{2}/.test(value) ? value.slice(0, 5) : "06:00";
+}
+
+function safeActiveDays(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [1, 2, 3, 4, 5];
+  }
+  const days = Array.from(new Set(value.map((day) => Number(day)).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7)));
+  return days.sort((a, b) => a - b);
+}
+
+function scannerScheduleLabel(device: Device) {
+  if (!device.scanner_schedule_enabled) {
+    return "Altid aktiv";
+  }
+  return `${timeInputValue(device.scanner_active_start)}-${timeInputValue(device.scanner_active_end)}`;
+}
+
+function scannerScheduleDetail(device: Device) {
+  if (!device.scanner_schedule_enabled) {
+    return "Ingen sleep time";
+  }
+  const activeDays = safeActiveDays(device.scanner_active_days);
+  if (activeDays.length === 7) {
+    return "Alle dage";
+  }
+  return activeDays
+    .map((day) => weekdays.find((candidate) => candidate.value === day)?.label)
+    .filter(Boolean)
+    .join(", ");
 }
 
 function uniqueOrganizations(memberships: Membership[]): Organization[] {

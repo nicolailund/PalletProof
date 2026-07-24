@@ -45,6 +45,10 @@ export type Device = {
   software_version: string;
   last_update_id: string;
   metadata: Record<string, unknown>;
+  scanner_schedule_enabled: boolean;
+  scanner_active_start: string;
+  scanner_active_end: string;
+  scanner_active_days: number[];
   created_at: string;
   updated_at: string;
 };

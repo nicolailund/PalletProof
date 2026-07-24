@@ -356,6 +356,12 @@ Hvis privacy-processering er slået til, uploades den behandlede video med samme
 
 Hvis privacy-processering fejler, uploades råvideoen ikke automatisk. Den flyttes til `data/failed`, så den kan vurderes manuelt.
 
+## Scanner sleep time
+
+Adminportalen kan sætte et aktivt tidsvindue pr. enhed. Pi'en henter schedule via Supabase heartbeat og pulser kun SEN-18088 triggeren i det aktive vindue. Hvis en optagelse allerede er startet, stoppes den ikke af sleep time; sleep time gælder kun nye scanninger.
+
+Hvis cloud ikke er aktivt, eller der ikke er sat schedule på enheden, er scanneren altid aktiv som fallback.
+
 ## Upload
 
 `upload.protocol` kan være:

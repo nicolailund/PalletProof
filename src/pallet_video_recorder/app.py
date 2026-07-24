@@ -27,6 +27,7 @@ from .provisioning import (
     parse_provisioning_qr,
 )
 from .scanner import BarcodeScanWorker
+from .scanner_schedule import ScannerSchedule
 from .sound import Beeper
 from .software_update import SoftwareUpdateWorker
 from .status_light import StatusLight
@@ -68,6 +69,8 @@ class PalletVideoApp:
         self._last_scan_status_logged_at = 0.0
         self._last_heartbeat_at = 0.0
         self._cloud_activation_confirmed = False
+        self.scanner_schedule = ScannerSchedule()
+        self._scanner_awake: bool | None = None
         self.identity_store = DeviceIdentityStore(self._identity_path())
         self.device_identity: DeviceIdentity | None = None
 
@@ -101,7 +104,7 @@ class PalletVideoApp:
         LOGGER.info("Ready for barcode scan on device serial %s", self.device_identity.serial_number)
         self.status_light.idle()
         self._send_cloud_heartbeat("online", force=True)
-        self.hardware_scanner.enable_triggering()
+        self._sync_scanner_trigger()
         while self.running:
             frame = self.frame_source.capture_preview()
             if frame is None:
@@ -115,15 +118,20 @@ class PalletVideoApp:
             if active is None:
                 self._send_cloud_heartbeat("online")
                 idle_seconds = time.monotonic() - idle_since
+                scanner_awake = self._sync_scanner_trigger()
                 if self.software_updater.ready_to_apply(idle_seconds):
                     self.hardware_scanner.disable_triggering()
                     if self.software_updater.apply_pending():
                         self.running = False
                     else:
-                        self.hardware_scanner.enable_triggering()
+                        self._sync_scanner_trigger()
                     continue
 
                 self._log_scan_status(frame_number)
+                if not scanner_awake:
+                    self.hardware_scanner.discard_pending_results()
+                    continue
+
                 scanned_id = self._read_scanned_id(frame, frame_number)
                 if scanned_id:
                     self.hardware_scanner.disable_triggering()
@@ -156,7 +164,7 @@ class PalletVideoApp:
                 LOGGER.info("Ready for next barcode scan")
                 self.status_light.idle()
                 self._send_cloud_heartbeat("online", force=True)
-                self.hardware_scanner.enable_triggering()
+                self._sync_scanner_trigger()
 
         if active is not None:
             LOGGER.info("Application stopping with active recording; finalizing it")
@@ -414,9 +422,14 @@ class PalletVideoApp:
             status=status,
             software_version=__version__,
             last_update_id=self._last_applied_update_id(),
-            metadata=self.cloud_client.build_metadata(),
+            metadata={
+                **self.cloud_client.build_metadata(),
+                "scanner_awake": bool(self._scanner_awake if self._scanner_awake is not None else self.scanner_schedule.is_active()),
+                "scanner_schedule_enabled": self.scanner_schedule.enabled,
+            },
         )
         if result.ok:
+            self._apply_cloud_config(result.data)
             LOGGER.info("Device heartbeat sent status=%s", status)
 
     def _activate_cloud_identity(self, identity: DeviceIdentity) -> None:
@@ -426,8 +439,37 @@ class PalletVideoApp:
             metadata=self.cloud_client.build_metadata(),
         )
         if result.ok:
+            self._apply_cloud_config(result.data)
             self._cloud_activation_confirmed = True
             LOGGER.info("Device activation confirmed by Supabase")
+
+    def _apply_cloud_config(self, data: dict[str, object] | None) -> None:
+        if not data:
+            return
+        next_schedule = ScannerSchedule.from_cloud(data.get("scanner_schedule"))
+        if next_schedule != self.scanner_schedule:
+            self.scanner_schedule = next_schedule
+            self._scanner_awake = None
+            LOGGER.info(
+                "Scanner schedule updated enabled=%s active=%s-%s days=%s timezone=%s",
+                next_schedule.enabled,
+                next_schedule.active_start.strftime("%H:%M"),
+                next_schedule.active_end.strftime("%H:%M"),
+                ",".join(str(day) for day in next_schedule.active_days),
+                next_schedule.timezone,
+            )
+
+    def _sync_scanner_trigger(self) -> bool:
+        scanner_awake = self.scanner_schedule.is_active()
+        if scanner_awake:
+            self.hardware_scanner.enable_triggering()
+        else:
+            self.hardware_scanner.disable_triggering()
+
+        if scanner_awake != self._scanner_awake:
+            LOGGER.info("Scanner schedule state changed: %s", "active" if scanner_awake else "sleeping")
+            self._scanner_awake = scanner_awake
+        return scanner_awake
 
     def _last_applied_update_id(self) -> str:
         try:

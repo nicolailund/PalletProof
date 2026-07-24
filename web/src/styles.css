@@ -120,6 +120,15 @@ button {
   margin-top: 24px;
 }
 
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 label {
   display: grid;
   gap: 7px;
@@ -842,6 +851,43 @@ tr:last-child td {
   height: 18px;
 }
 
+.weekday-field {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 0;
+}
+
+.weekday-field legend {
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 650;
+  padding: 0 4px;
+}
+
+.weekday-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.weekday-toggle {
+  display: grid;
+  place-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.weekday-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.weekday-toggle span {
+  color: var(--muted-strong);
+}
+
 .password-field .icon-button {
   height: 38px;
 }
@@ -886,6 +932,11 @@ tr:last-child td {
 
   .content-grid,
   .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-grid.two,
+  .weekday-grid {
     grid-template-columns: 1fr;
   }
 

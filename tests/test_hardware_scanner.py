@@ -60,6 +60,15 @@ class HardwareScannerWorkerTest(unittest.TestCase):
 
         self.assertIsNone(worker.poll())
 
+    def test_discards_pending_results(self) -> None:
+        worker = HardwareScannerWorker(HardwareScannerConfig(validate_gs1_ai01_check_digit=False))
+        worker.accept_for_test("ORD-123")
+        worker.accept_for_test("ORD-456")
+
+        self.assertEqual(worker.discard_pending_results(), 2)
+        self.assertIsNone(worker.poll())
+        self.assertEqual(worker.discard_pending_results(), 0)
+
     def test_treats_buffer_as_complete_after_idle_timeout(self) -> None:
         now = [100.0]
         worker = HardwareScannerWorker(

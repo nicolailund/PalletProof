@@ -90,6 +90,7 @@ De vigtigste skærme:
 - Video detail: afspilning, metadata, audit log og knap til del link.
 - Share management: opret, kopier, udløb, tilbagekald og se adgangslog.
 - Provisioning: opret enhed, vælg site, generer QR-kode, se om den er aktiveret.
+- Scanner sleep time: pr. enhed kan admin sætte aktive tidsvinduer og ugedage, så scanneren ikke står og blinker uden for driftstid.
 
 ## Video storage og deling
 
@@ -134,6 +135,7 @@ Der bør laves alarmer for:
 - diskforbrug over 80%
 - kamera ikke fundet
 - scanner ikke fundet
+- scanner i sleep time uden for aktivt vindue
 - gentagne uploadfejl
 - softwareopdatering fejlede
 - mange videoer uden matchende ordreformat

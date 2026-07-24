@@ -210,6 +210,12 @@ class HardwareScannerWorker:
                 return None
             return self._results.popleft()
 
+    def discard_pending_results(self) -> int:
+        with self._lock:
+            count = len(self._results)
+            self._results.clear()
+            return count
+
     def stats(self) -> HardwareScannerStats:
         with self._lock:
             return HardwareScannerStats(
